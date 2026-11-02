@@ -1,0 +1,33 @@
+# Zurich event agent configuration. Edit freely; changes apply on the next run.
+
+[general]
+days_ahead = 120            # ignore events further out than this
+user_agent = "zurich-event-agent/0.1 (personal, non-commercial; daily fetch)"
+request_delay_seconds = 2   # pause between requests to the same site
+
+[filter]
+# Case-insensitive substrings matched against title, subtitle, category and venue.
+# Events matching any "exclude" term are dropped.
+exclude = [
+  "schulworkshop", "schulen", "schulklasse", "für schulen",
+  "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung",
+]
+# Events matching any "highlight" term get a ★ and can be shown alone via "Starred only".
+highlight = [
+  "jazz", "quartet", "quartett", "trio", "piano", "klavier", "orchester",
+  "oper", "opera", "ballett", "ballet", "premiere", "ausstellung", "exhibition",
+]
+
+# Toggle individual sources on/off.
+[sources]
+opernhaus = true
+tonhalle = true
+schauspielhaus = true
+moods = true
+kaufleuten = true
+bogenf = true
+rotefabrik = true
+gessnerallee = true
+hallenstadion = true
+museum_gestaltung = true
+rigiblick = true

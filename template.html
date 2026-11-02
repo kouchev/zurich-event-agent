@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zurich Events</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
+    --accent: #b4321e; --accent-soft: #fbeae6; --new: #1f6f43; --new-soft: #e3f3e9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --card: #1e1e21; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+            --accent: #ff7a63; --accent-soft: #3a2420; --new: #6fd39a; --new-soft: #1b3326; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 14px 16px 10px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  input[type=search] { flex: 1 1 220px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+                       background: var(--card); color: var(--ink); font: inherit; }
+  label.tog { font-size: 13px; color: var(--muted); display: flex; gap: 5px; align-items: center; cursor: pointer; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px;
+          padding: 3px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .chip[aria-pressed=false] { opacity: .45; }
+  main { padding: 6px 16px 40px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+       margin: 22px 0 8px; font-weight: 600; }
+  .ev { display: grid; grid-template-columns: 52px 1fr; gap: 12px; background: var(--card);
+        border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+  .ev.star { border-left: 3px solid var(--accent); }
+  .time { font-variant-numeric: tabular-nums; font-weight: 600; padding-top: 1px; }
+  .title { font-weight: 600; color: var(--ink); text-decoration: none; }
+  .title:hover { text-decoration: underline; }
+  .sub { color: var(--muted); font-size: 13.5px; margin-top: 1px; }
+  .tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+  .badge { border-radius: 4px; padding: 0 6px; font-size: 11.5px; font-weight: 600; }
+  .b-new { background: var(--new-soft); color: var(--new); }
+  .b-star { background: var(--accent-soft); color: var(--accent); }
+  footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 30px; }
+  .err { color: var(--accent); }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Zurich Events</h1>
+  <div class="meta">Music &amp; culture · last scan __UPDATED__ · <span id="count"></span></div>
+  <div class="controls">
+    <input type="search" id="q" placeholder="Search title, artist, venue, genre…" aria-label="Search">
+    <label class="tog"><input type="checkbox" id="onlyNew"> New only</label>
+    <label class="tog"><input type="checkbox" id="onlyStar"> Starred only</label>
+  </div>
+  <div class="chips" id="venues"></div>
+</div></header>
+<main class="wrap" id="list"></main>
+<div class="wrap" style="padding:0 16px 30px"><footer id="status"></footer></div>
+<script>
+const EVENTS = /*EVENTS*/[];
+const STATUS = /*STATUS*/[];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const venueKey = e => e.venue.split(" – ")[0];
+const venues = [...new Set(EVENTS.map(venueKey))].sort();
+let hidden = new Set();
+try { hidden = new Set(JSON.parse(localStorage.getItem("hiddenVenues") || "[]")); } catch {}
+
+$("venues").innerHTML = venues.map(v =>
+  `<button class="chip" data-v="${esc(v)}" aria-pressed="${!hidden.has(v)}">${esc(v)}</button>`).join("");
+$("venues").addEventListener("click", ev => {
+  const b = ev.target.closest(".chip"); if (!b) return;
+  const v = b.dataset.v; hidden.has(v) ? hidden.delete(v) : hidden.add(v);
+  b.setAttribute("aria-pressed", !hidden.has(v));
+  try { localStorage.setItem("hiddenVenues", JSON.stringify([...hidden])); } catch {}
+  draw();
+});
+["q", "onlyNew", "onlyStar"].forEach(id => $(id).addEventListener("input", draw));
+
+const dayFmt = new Intl.DateTimeFormat("en-GB", {weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Zurich"});
+const timeFmt = new Intl.DateTimeFormat("de-CH", {hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich"});
+
+function draw() {
+  const q = $("q").value.trim().toLowerCase();
+  const list = EVENTS.filter(e =>
+    !hidden.has(venueKey(e)) &&
+    (!$("onlyNew").checked || e.new) &&
+    (!$("onlyStar").checked || e.highlight) &&
+    (!q || [e.title, e.subtitle, e.venue, e.category].join(" ").toLowerCase().includes(q)));
+  $("count").textContent = `${list.length} of ${EVENTS.length} events`;
+  let html = "", lastDay = "";
+  for (const e of list) {
+    const d = new Date(e.start), day = dayFmt.format(d);
+    if (day !== lastDay) { html += `<h2>${esc(day)}</h2>`; lastDay = day; }
+    html += `<article class="ev${e.highlight ? " star" : ""}">
+      <div class="time">${e.allday ? "–" : timeFmt.format(d)}</div>
+      <div>
+        <a class="title" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>
+        ${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}
+        <div class="tags"><span>${esc(e.venue)}</span><span>· ${esc(e.category)}</span>
+          ${e.new ? `<span class="badge b-new">NEW</span>` : ""}
+          ${e.highlight ? `<span class="badge b-star">★</span>` : ""}</div>
+      </div></article>`;
+  }
+  $("list").innerHTML = html || `<div class="empty">No events match.</div>`;
+}
+draw();
+
+$("status").innerHTML = "Sources in last scan: " + (STATUS.map(s =>
+  s.ok ? `${esc(s.source)} (${s.count})` : `<span class="err" title="${esc(s.message)}">${esc(s.source)} ✗ failed</span>`
+).join(" · ") || "none");
+</script>
+</body>
+</html>
