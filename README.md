@@ -9,7 +9,7 @@ as a searchable page (`site/index.html`).
 | `agent.py` | one parser per venue + SQLite storage + page rendering |
 | `template.html` | the page layout |
 | `run.sh` | daily scan (logs to `cron.log`) |
-| `serve.sh` | serves `site/` on 127.0.0.1:8765 |
+| `serve.sh` | serves `site/` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
 
 Sources: Opernhaus, Tonhalle-Orchester, Schauspielhaus, Moods, Kaufleuten, Bogen F,
@@ -26,6 +26,15 @@ parser with `.venv/bin/python agent.py --only <source>`.
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./run.sh            # first scan
-./serve.sh &        # page at http://127.0.0.1:8765
-# schedule: crontab -e  →  0 7 * * * /path/to/run.sh   and   @reboot /path/to/serve.sh
+./serve.sh &        # page at http://127.0.0.1:8765 (localhost only)
+BIND=0.0.0.0 ./serve.sh &   # or: reachable from the network on port 8765
 ```
+
+Schedule with `crontab -e`:
+
+```
+0 7 * * * /path/to/run.sh
+@reboot BIND=0.0.0.0 /path/to/serve.sh
+```
+
+The page has no login; with `BIND=0.0.0.0` anyone who knows the address can view it.
