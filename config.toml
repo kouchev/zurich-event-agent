@@ -4,6 +4,7 @@
 days_ahead = 120            # ignore events further out than this
 user_agent = "zurich-event-agent/0.1 (personal, non-commercial; daily fetch)"
 request_delay_seconds = 2   # pause between requests to the same site
+max_pages = 20              # upper limit when following a site's "next page" links
 
 [filter]
 # Case-insensitive substrings matched against title, subtitle, category and venue.
@@ -31,3 +32,4 @@ gessnerallee = true
 hallenstadion = true
 museum_gestaltung = true
 rigiblick = true
+kunsthaus = true

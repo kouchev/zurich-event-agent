@@ -36,6 +36,8 @@
         border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
   .ev.star { border-left: 3px solid var(--accent); }
   .time { font-variant-numeric: tabular-nums; font-weight: 600; padding-top: 1px; }
+  .time.small { font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.3; }
+  .ev:has(.time.small) { grid-template-columns: 64px 1fr; }
   .title { font-weight: 600; color: var(--ink); text-decoration: none; }
   .title:hover { text-decoration: underline; }
   .sub { color: var(--muted); font-size: 13.5px; margin-top: 1px; }
@@ -84,6 +86,7 @@ $("venues").addEventListener("click", ev => {
 
 const dayFmt = new Intl.DateTimeFormat("en-GB", {weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Zurich"});
 const timeFmt = new Intl.DateTimeFormat("de-CH", {hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich"});
+const untilFmt = new Intl.DateTimeFormat("de-CH", {day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Zurich"});
 
 function draw() {
   const q = $("q").value.trim().toLowerCase();
@@ -93,12 +96,23 @@ function draw() {
     (!$("onlyStar").checked || e.highlight) &&
     (!q || [e.title, e.subtitle, e.venue, e.category].join(" ").toLowerCase().includes(q)));
   $("count").textContent = `${list.length} of ${EVENTS.length} events`;
-  let html = "", lastDay = "";
-  for (const e of list) {
+  // long-running items (exhibitions) that have already opened go into "On now"
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const running = list.filter(e => e.end && new Date(e.start) < today);
+  const dated = list.filter(e => !running.includes(e));
+  let html = running.length ? `<h2>On now</h2>` + running.map(e => card(e, "until " + untilFmt.format(new Date(e.end)))).join("") : "";
+  let lastDay = "";
+  for (const e of dated) {
     const d = new Date(e.start), day = dayFmt.format(d);
     if (day !== lastDay) { html += `<h2>${esc(day)}</h2>`; lastDay = day; }
-    html += `<article class="ev${e.highlight ? " star" : ""}">
-      <div class="time">${e.allday ? "–" : timeFmt.format(d)}</div>
+    html += card(e, e.allday ? "–" : timeFmt.format(d));
+  }
+  $("list").innerHTML = html || `<div class="empty">No events match.</div>`;
+}
+
+function card(e, when) {
+  return `<article class="ev${e.highlight ? " star" : ""}">
+      <div class="time${e.end ? " small" : ""}">${esc(when)}</div>
       <div>
         <a class="title" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>
         ${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}
@@ -106,8 +120,6 @@ function draw() {
           ${e.new ? `<span class="badge b-new">NEW</span>` : ""}
           ${e.highlight ? `<span class="badge b-star">★</span>` : ""}</div>
       </div></article>`;
-  }
-  $("list").innerHTML = html || `<div class="empty">No events match.</div>`;
 }
 draw();
 

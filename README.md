@@ -13,9 +13,14 @@ as a searchable page (`site/index.html`).
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
 
 Sources: Opernhaus, Tonhalle-Orchester, Schauspielhaus, Moods, Kaufleuten, Bogen F,
-Rote Fabrik, Gessnerallee, Hallenstadion (next ~12 shows only), Museum für Gestaltung,
-Theater Rigiblick. Kunsthaus and Tonhalle Maag are excluded because their robots.txt
-disallows crawlers.
+Rote Fabrik, Gessnerallee, Hallenstadion, Museum für Gestaltung, Theater Rigiblick,
+Kunsthaus (exhibitions only). Paginated sites are followed up to `max_pages` or until
+`days_ahead` is reached. Gessnerallee (~2 weeks) and Moods (~1 month) publish less far ahead.
+Exhibitions carry an end date and appear under "On now" while running.
+
+Not usable: the Zürich Tourismus open-data API (`zuerich.com/en/api/v2/data`) lists
+venues and places but no dated events; Landesmuseum renders its listing client-side;
+tonhalle-maag.ch is no longer the venue's site.
 
 The agent identifies itself honestly and obeys robots.txt. If a site changes its layout,
 its parser yields 0 events and the page footer marks that source as failed; test a single

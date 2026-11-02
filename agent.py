@@ -29,8 +29,16 @@ def fetch(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     host = parts.netloc
     if host not in _robots:
-        rp = urllib.robotparser.RobotFileParser(f"{parts.scheme}://{host}/robots.txt")
-        rp.read()
+        # Read robots.txt with our own UA: RobotFileParser.read() sends Python's default UA,
+        # which some sites reject with 403, and it then treats the whole site as disallowed.
+        rp = urllib.robotparser.RobotFileParser()
+        try:
+            req = urllib.request.Request(f"{parts.scheme}://{host}/robots.txt", headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                rp.parse(r.read().decode("utf-8", "replace").splitlines())
+        except urllib.error.HTTPError as e:
+            rp.disallow_all = e.code in (401, 403)   # same semantics as RobotFileParser.read()
+            rp.allow_all = e.code >= 400 and not rp.disallow_all
         _robots[host] = rp
     if not _robots[host].can_fetch(UA, url):
         raise PermissionError(f"robots.txt disallows {url}")
@@ -55,9 +63,25 @@ def text(node) -> str:
     return " ".join(node.get_text(" ", strip=True).split()) if node else ""
 
 
-def ev(source, venue, title, start, url, subtitle="", category="", allday=False):
+def ev(source, venue, title, start, url, subtitle="", category="", allday=False, end=None):
+    """end is set for long-running items (exhibitions); they stay listed until it passes."""
     return dict(source=source, venue=venue, title=title.strip(), subtitle=subtitle.strip(),
-                start=start, url=url, category=category, allday=allday)
+                start=start, url=url, category=category, allday=allday, end=end)
+
+
+def horizon() -> dt.datetime:
+    return dt.datetime.now(TZ) + dt.timedelta(days=CFG["general"]["days_ahead"])
+
+
+def paged(parse_page, max_pages=None):
+    """Call parse_page(n) for n = 1, 2, ... until a page is empty or passes the horizon."""
+    out = []
+    for n in range(1, (max_pages or CFG["general"]["max_pages"]) + 1):
+        events = parse_page(n)
+        out += events
+        if not events or max(e["start"] for e in events) > horizon():
+            break
+    return out
 
 
 def infer_year(day: int, month: int) -> int:
@@ -77,7 +101,11 @@ def local(y, mo, d, hh=0, mm=0) -> dt.datetime:
 # Each parser returns a list of event dicts; failures are caught per source.
 
 def opernhaus():
-    url = "https://www.opernhaus.ch/en/spielplan/calendar/"
+    return paged(lambda n: _opernhaus_page("https://www.opernhaus.ch/en/spielplan/calendar/"
+                                           + (f"page{n}" if n > 1 else "")))
+
+
+def _opernhaus_page(url):
     out = []
     for tag in soup(url).find_all("script", type="application/ld+json"):
         try:
@@ -95,9 +123,14 @@ def opernhaus():
 
 
 def tonhalle():
+    return paged(lambda n: _tonhalle_page(f"/en/concerts/kalender/page{n}?action=filtercalendar" if n > 1
+                                          else "/en/concerts/kalender/"))
+
+
+def _tonhalle_page(path):
     base = "https://www.tonhalle-orchester.ch"
     out = []
-    for row in soup(base + "/en/concerts/kalender/").select("div.row.data"):
+    for row in soup(base + path).select("div.row.data"):
         e = row.select_one("div.event[data-timestamp]")
         a = row.select_one("a[href*='/concerts/kalender/']")
         if not (e and a):
@@ -219,11 +252,17 @@ def gessnerallee():
 
 
 def hallenstadion():
-    # Only the first page (next ~12 shows); later pages load via AJAX.
+    # Page 1 is the events page; further pages come from the site's own "load more" AJAX call.
+    ajax = ("https://hallenstadion.ch/wp-admin/admin-ajax.php?action=events_filter&filter_by_genre="
+            "&filter_by_events_type=&filter_by_date=&from_date=&to_date=&search=&paged=")
+    return paged(lambda n: _hallenstadion_page("https://hallenstadion.ch/events/" if n == 1 else ajax + str(n)))
+
+
+def _hallenstadion_page(url):
     out = []
     months = {m: i for i, m in enumerate(
         "jan feb mär apr mai jun jul aug sep okt nov dez".split(), 1)}
-    for c in soup("https://hallenstadion.ch/events/").select("div.c-event"):
+    for c in soup(url).select("div.c-event"):
         a = c.select_one("a.c-event-content[href]")
         day, mon, yr = (text(c.select_one(s)) for s in (".schedule--day", ".schedule--month", ".schedule--year"))
         mo = months.get(mon[:3].lower().replace("mar", "mär"))
@@ -237,9 +276,14 @@ def hallenstadion():
 
 
 def museum_gestaltung():
+    # the site's page numbers are zero-based: ?page=1 is the second page
+    return paged(lambda n: _museum_gestaltung_page(f"/de/kalender?page={n - 1}" if n > 1 else "/de/kalender"))
+
+
+def _museum_gestaltung_page(path):
     base = "https://museum-gestaltung.ch"
     out = []
-    for li in soup(base + "/de/kalender").select("ol > li"):
+    for li in soup(base + path).select("ol > li"):
         a = li.find("a", href=re.compile(r"^/de/events/.+-\d{4}-\d{2}-\d{2}$"))
         if not a:
             continue
@@ -277,8 +321,39 @@ def rigiblick():
     return out
 
 
+def kunsthaus():
+    # Exhibitions only. JSON-LD gives every exhibition (incl. past) with a start date;
+    # cards for the ones running now carry "Until dd.mm.yyyy".
+    url = "https://www.kunsthaus.ch/en/besuch-planen/ausstellungen/"
+    s = soup(url)
+    until = {}
+    for g in s.select("div.hgroup"):
+        a = g.select_one("h2 a[href]")
+        m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text(g.select_one("time.date")))
+        if a and m:
+            until[a["href"]] = (local(int(m[3]), int(m[2]), int(m[1]), 23, 59),
+                                text(g.select_one("p.description")))
+    today = dt.datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    out = []
+    for tag in s.find_all("script", type="application/ld+json"):
+        try:
+            e = json.loads(tag.string or "")
+        except ValueError:
+            continue
+        if e.get("@type") != "ExhibitionEvent" or not e.get("startDate"):
+            continue
+        start = dt.datetime.fromisoformat(e["startDate"][:10]).replace(tzinfo=TZ)
+        end, sub = until.get(e.get("@id"), (None, ""))
+        if start < today and not end:
+            continue          # past exhibition
+        out.append(ev("kunsthaus", "Kunsthaus Zürich", html.unescape(e["name"]), start, e["@id"],
+                      subtitle=sub or "Exhibition opens", category="Exhibition", allday=True, end=end))
+    return out
+
+
 PARSERS = {f.__name__: f for f in (opernhaus, tonhalle, schauspielhaus, moods, kaufleuten, bogenf,
-                                   rotefabrik, gessnerallee, hallenstadion, museum_gestaltung, rigiblick)}
+                                   rotefabrik, gessnerallee, hallenstadion, museum_gestaltung, rigiblick,
+                                   kunsthaus)}
 
 
 # ---------------------------------------------------------------- storage
@@ -294,6 +369,8 @@ def db() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS runs (
             ts TEXT, source TEXT, ok INTEGER, count INTEGER, message TEXT);
     """)
+    if "end" not in [r[1] for r in con.execute("PRAGMA table_info(events)")]:
+        con.execute('ALTER TABLE events ADD COLUMN "end" TEXT')
     return con
 
 
@@ -304,7 +381,6 @@ def matches(e, terms):
 
 def collect(con):
     now = dt.datetime.now(TZ)
-    horizon = now + dt.timedelta(days=CFG["general"]["days_ahead"])
     flt = CFG["filter"]
     for name, parser in PARSERS.items():
         if not CFG["sources"].get(name, True):
@@ -319,17 +395,19 @@ def collect(con):
             continue
         kept = 0
         for e in events:
-            if not (now - dt.timedelta(hours=6) <= e["start"] <= horizon) or matches(e, flt["exclude"]):
+            current = (now - dt.timedelta(hours=6) <= e["start"] <= horizon()
+                       or (e["end"] and e["start"] <= now <= e["end"]))
+            if not current or matches(e, flt["exclude"]):
                 continue
             eid = hashlib.sha1(f"{e['source']}|{e['url']}|{e['start'].isoformat()}|{e['title']}".encode()).hexdigest()[:16]
             con.execute("""
-                INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET title=excluded.title, subtitle=excluded.subtitle,
                     start=excluded.start, allday=excluded.allday, category=excluded.category,
-                    highlight=excluded.highlight, last_seen=excluded.last_seen""",
+                    highlight=excluded.highlight, last_seen=excluded.last_seen, "end"=excluded."end" """,
                 (eid, e["source"], e["venue"], e["title"], e["subtitle"], e["start"].isoformat(),
                  int(e["allday"]), e["url"], e["category"], int(matches(e, flt["highlight"])),
-                 now.isoformat(), now.isoformat()))
+                 now.isoformat(), now.isoformat(), e["end"] and e["end"].isoformat()))
             kept += 1
         log.info("%s: %d parsed, %d kept", name, len(events), kept)
         con.execute("INSERT INTO runs VALUES (?,?,?,?,?)", (now.isoformat(), name, 1, kept, ""))
@@ -340,8 +418,8 @@ def collect(con):
 
 def render(con):
     now = dt.datetime.now(TZ)
-    rows = con.execute("SELECT * FROM events WHERE start >= ? ORDER BY start",
-                       ((now - dt.timedelta(hours=6)).isoformat(),)).fetchall()
+    rows = con.execute('SELECT * FROM events WHERE start >= ? OR "end" >= ? ORDER BY start',
+                       ((now - dt.timedelta(hours=6)).isoformat(), now.isoformat())).fetchall()
     last_run = con.execute("SELECT MAX(ts) FROM runs").fetchone()[0]
     status = con.execute("SELECT source, ok, count, message FROM runs WHERE ts = ?", (last_run,)).fetchall()
     events = [dict(r) for r in rows]
@@ -368,7 +446,7 @@ def main():
     if args.only:
         for e in PARSERS[args.only]():
             print(e["start"].strftime("%a %d.%m.%Y %H:%M"), "|", e["title"], "|", e["subtitle"][:60],
-                  "|", e["category"], "|", e["url"])
+                  "|", e["category"], "|", e["url"], "| until " + e["end"].strftime("%d.%m.%Y") if e["end"] else "")
         return
     con = db()
     if not args.render:
