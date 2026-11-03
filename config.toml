@@ -12,6 +12,7 @@ max_pages = 20              # upper limit when following a site's "next page" li
 exclude = [
   "schulworkshop", "schulen", "schulklasse", "für schulen",
   "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung",
+  "doctoral examination",   # ETH PhD defences; remove this line to see them
 ]
 # Events matching any "highlight" term get a ★ and can be shown alone via "Starred only".
 highlight = [
@@ -33,3 +34,5 @@ hallenstadion = true
 museum_gestaltung = true
 rigiblick = true
 kunsthaus = true
+eth = true
+uzh = true

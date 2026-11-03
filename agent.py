@@ -37,8 +37,10 @@ def fetch(url: str) -> str:
             with urllib.request.urlopen(req, timeout=30) as r:
                 rp.parse(r.read().decode("utf-8", "replace").splitlines())
         except urllib.error.HTTPError as e:
-            rp.disallow_all = e.code in (401, 403)   # same semantics as RobotFileParser.read()
-            rp.allow_all = e.code >= 400 and not rp.disallow_all
+            # RFC 9309 §2.3.1: robots.txt unavailable (4xx) → no restrictions;
+            # server error (5xx) → assume complete disallow.
+            rp.allow_all = 400 <= e.code < 500
+            rp.disallow_all = not rp.allow_all
         _robots[host] = rp
     if not _robots[host].can_fetch(UA, url):
         raise PermissionError(f"robots.txt disallows {url}")
@@ -351,9 +353,61 @@ def kunsthaus():
     return out
 
 
+def eth():
+    # Public JSON API behind https://ethz.ch/en/news-and-events/events.html
+    url = ("https://idapps.ethz.ch/pcm-pub-services/v2/entries?rs-first=0&rs-size=9999"
+           "&filters%5B0%5D.min-till-end=0&filters%5B0%5D.max-till-start=999&lang=en&client-id=wcms"
+           "&filters%5B0%5D.cals=1&comp-ext=true")
+    out = []
+    for e in json.loads(fetch(url))["entry-array"]:
+        cls, loc = e.get("classification", {}), e.get("location", {})
+        if cls.get("target-group-desc") in ("Employees", "Lecturers"):
+            continue
+        title = e["content"]["title"]
+        link = f"https://ethz.ch/en/news-and-events/events/details.{re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')[:60] or 'event'}.{e['id']}.html"
+        where = loc.get("internal", {})
+        room = " ".join(filter(None, (where.get("building"), where.get("floor"), where.get("room")))) \
+            or (loc.get("address") or {}).get("1st-line", "")
+        venue = "ETH Zürich" + (f" – {where['area-desc']}" if where.get("area-desc") else "")
+        audience = cls.get("target-group-desc") or ""
+        subtitle = " · ".join(filter(None, (room, audience if audience != "Public" else "", cls.get("entry-lang-desc"))))
+        cat = cls.get("entry-type-desc") or "Event"
+        when = e.get("date-time-indication", {})
+        if "opening-hours" in when:          # exhibitions: one long-running item
+            oh = when["opening-hours"]
+            start = dt.datetime.fromisoformat(oh["date-from"]).replace(tzinfo=TZ)
+            end = dt.datetime.fromisoformat(oh["date-to"]).replace(hour=23, minute=59, tzinfo=TZ)
+            out.append(ev("eth", venue, title, start, link, subtitle=subtitle, category=cat, allday=True, end=end))
+            continue
+        for d in when.get("date-with-times-array", []):
+            hh, mm = map(int, (d.get("time-from") or "00:00").split(":"))
+            y, mo, da = map(int, d["date"].split("-"))
+            out.append(ev("eth", venue, title, local(y, mo, da, hh, mm), link, subtitle=subtitle,
+                          category=cat, allday=not d.get("time-from")))
+    return out
+
+
+def uzh():
+    # Public JSON API behind https://www.uzh.ch/en/events/agenda.html
+    kinds = {"ringvorlesung": "Lecture series", "antrittsvorlesung": "Inaugural lecture"}
+    out = []
+    for e in json.loads(fetch("https://www.webroot.uzh.ch/apps/agenda/api/V5/event/"))["events"]:
+        if not e.get("dtstart"):
+            continue
+        start = dt.datetime.fromtimestamp(int(e["dtstart"]) / 1000, TZ)
+        org = html.unescape(re.sub(r"<[^>]+>", " ", e.get("organisation_name") or "")).split("  ")[0].strip()
+        where = e.get("address") or e.get("building") or ("Online" if e.get("is_virtual") else "")
+        subtitle = " · ".join(filter(None, (html.unescape(e.get("speaker") or "").strip(), org, where.lstrip("@ "))))
+        cat = kinds.get(e.get("series_type")) or html.unescape(e.get("serie_name") or "") or "Event"
+        out.append(ev("uzh", "Universität Zürich", html.unescape(e["title"]), start,
+                      f"https://www.uzh.ch/en/events/agenda.html?event={e['id']}",
+                      subtitle=subtitle, category=cat))
+    return out
+
+
 PARSERS = {f.__name__: f for f in (opernhaus, tonhalle, schauspielhaus, moods, kaufleuten, bogenf,
                                    rotefabrik, gessnerallee, hallenstadion, museum_gestaltung, rigiblick,
-                                   kunsthaus)}
+                                   kunsthaus, eth, uzh)}
 
 
 # ---------------------------------------------------------------- storage
