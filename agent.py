@@ -128,7 +128,7 @@ def _opernhaus_page(url):
 
 
 def tonhalle():
-    return paged(lambda n: _tonhalle_page(f"/en/concerts/kalender/page{n}?action=filtercalendar" if n > 1
+    return paged(lambda n: _tonhalle_page(f"/en/concerts/kalender/page{n}" if n > 1
                                           else "/en/concerts/kalender/"))
 
 
