@@ -4,13 +4,15 @@ Scrapes event programmes from Zurich venues and universities once a day and publ
 as a small multi-page site in `site/`: a home page (`index.html`) with a card per section, and one
 page per `[[pages]]` block in `config.toml` (currently `culture.html` and `education.html`), with tabs
 between them. Each page has its own `highlight` star words (whole-word match); viewers can add
-more star topics on the page itself, saved in their browser only.
+more star topics on the page itself, saved in their browser only. A Diagnostic tab
+(`diagnostic.html`) shows per source whether the last scan passed, events found/kept, coverage,
+the last 14 scans and any error; the home page links to it with a health summary.
 
 | File | Purpose |
 |---|---|
 | `config.toml` | exclude / highlight keywords, days ahead, sources on/off, pages and their sources |
 | `agent.py` | one parser per venue + SQLite storage + page rendering |
-| `template.html` | the page layout |
+| `template.html`, `home.html`, `diagnostic.html` | page layouts |
 | `run.sh` | daily scan (logs to `cron.log`) |
 | `serve.sh` | serves `site/` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |

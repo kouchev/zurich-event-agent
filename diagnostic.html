@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zurich Events · Diagnostic</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
+    --accent: #b4321e; --ok: #1f6f43; --ok-soft: #e3f3e9; --bad: #b4321e; --bad-soft: #fbeae6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --card: #1e1e21; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+            --accent: #ff7a63; --ok: #6fd39a; --ok-soft: #1b3326; --bad: #ff7a63; --bad-soft: #3a2420; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { border-bottom: 1px solid var(--line); padding: 14px 16px 10px; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px;
+            border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current=page] { color: var(--ink); border-bottom-color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  main { padding: 16px; }
+  .table { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
+           white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.msg { white-space: normal; min-width: 220px; color: var(--bad); font-size: 12.5px; }
+  td a { color: inherit; }
+  .pill { border-radius: 4px; padding: 1px 7px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .pill.off { background: var(--line); color: var(--muted); }
+  .strip { display: inline-flex; gap: 2px; }
+  .strip i { width: 7px; height: 14px; border-radius: 2px; display: inline-block; }
+  .strip i.ok { background: var(--ok); opacity: .7; }
+  .strip i.bad { background: var(--bad); }
+  .notes { color: var(--muted); font-size: 13px; margin-top: 14px; line-height: 1.6; }
+  .notes b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Zurich Events</h1>
+  <nav class="tabs" aria-label="Pages">__NAV__</nav>
+  <div class="meta">Scan results per source · last scan __UPDATED__ · __SUMMARY__</div>
+</div></header>
+<main class="wrap">
+  <div class="table"><table>
+    <thead><tr><th>Source</th><th>Page</th><th>Last scan</th><th>Found</th><th>Kept</th><th>Listed now</th>
+      <th>Reaches until</th><th>Last success</th><th>Time</th><th>Last 14 scans</th><th>Error</th></tr></thead>
+    <tbody>
+__ROWS__
+    </tbody>
+  </table></div>
+  <div class="notes">
+    <b>Found</b>: events the parser read from the site · <b>Kept</b>: after the date window and exclude words ·
+    <b>Listed now</b>: upcoming events on the page (a failed source keeps showing the events from its last good scan) ·
+    <b>Last 14 scans</b>: oldest left, newest right; hover a bar for its date.
+    A source that suddenly finds 0 events usually means the site changed its layout.
+  </div>
+</main>
+</body>
+</html>

@@ -423,6 +423,10 @@ def db() -> sqlite3.Connection:
     """)
     if "end" not in [r[1] for r in con.execute("PRAGMA table_info(events)")]:
         con.execute('ALTER TABLE events ADD COLUMN "end" TEXT')
+    run_cols = [r[1] for r in con.execute("PRAGMA table_info(runs)")]
+    for col in ("parsed INTEGER", "seconds REAL"):
+        if col.split()[0] not in run_cols:
+            con.execute(f"ALTER TABLE runs ADD COLUMN {col}")
     return con
 
 
@@ -446,13 +450,15 @@ def collect(con):
     for name, parser in PARSERS.items():
         if not CFG["sources"].get(name, True):
             continue
+        t0 = time.time()
         try:
             events = parser()
             if not events:
                 raise ValueError("parsed 0 events – the page layout may have changed")
         except Exception as exc:
             log.error("%s failed: %s", name, exc)
-            con.execute("INSERT INTO runs VALUES (?,?,?,?,?)", (now.isoformat(), name, 0, 0, str(exc)[:300]))
+            con.execute("INSERT INTO runs (ts, source, ok, count, message, parsed, seconds) VALUES (?,?,?,?,?,?,?)",
+                        (now.isoformat(), name, 0, 0, f"{type(exc).__name__}: {exc}"[:300], 0, time.time() - t0))
             continue
         kept = 0
         for e in events:
@@ -471,7 +477,8 @@ def collect(con):
                  now.isoformat(), now.isoformat(), e["end"] and e["end"].isoformat()))
             kept += 1
         log.info("%s: %d parsed, %d kept", name, len(events), kept)
-        con.execute("INSERT INTO runs VALUES (?,?,?,?,?)", (now.isoformat(), name, 1, kept, ""))
+        con.execute("INSERT INTO runs (ts, source, ok, count, message, parsed, seconds) VALUES (?,?,?,?,?,?,?)",
+                    (now.isoformat(), name, 1, kept, "", len(events), time.time() - t0))
     con.commit()
 
 
@@ -500,9 +507,7 @@ def render(con):
         srcs = set(p["sources"]) | ((set(PARSERS) - assigned) if i == 0 else set())
         mine = [e for e in events if e["source"] in srcs]
         cards.append(home_card(p, files[p["id"]], mine, now))
-        nav = '<a href="index.html">Home</a>' + "".join(
-            f'<a href="{files[q["id"]]}"{" aria-current=\"page\"" if q is p else ""}>'
-            f'{html.escape(q["title"])}</a>' for q in pages)
+        nav = nav_html(pages, files, current=p["id"])
         page = (tpl.replace("/*EVENTS*/[]", json.dumps(mine, ensure_ascii=False).replace("</", "<\\/"))
                    .replace("/*STATUS*/[]", json.dumps([dict(s) for s in status if s["source"] in srcs],
                                                        ensure_ascii=False))
@@ -513,9 +518,69 @@ def render(con):
                    .replace("__UPDATED__", updated))
         write_atomic(out / files[p["id"]], page)
         log.info("rendered %d events to %s", len(mine), out / files[p["id"]])
-    home = (ROOT / "home.html").read_text().replace("__CARDS__", "\n".join(cards)).replace("__UPDATED__", updated)
+    failed = [s["source"] for s in status if not s["ok"]]
+    health = (f'<a class="health bad" href="diagnostic.html">⚠ {len(failed)} of {len(status)} sources failed</a>'
+              if failed else f'<a class="health" href="diagnostic.html">✓ all {len(status)} sources OK</a>')
+    home = ((ROOT / "home.html").read_text().replace("__CARDS__", "\n".join(cards))
+            .replace("__UPDATED__", updated).replace("__HEALTH__", health))
     write_atomic(out / "index.html", home)
     log.info("rendered home page with %d sections", len(pages))
+    render_diagnostic(con, pages, files, updated, now)
+
+
+def nav_html(pages, files, current) -> str:
+    links = [("index.html", "Home", "home")] + [(files[p["id"]], p["title"], p["id"]) for p in pages] \
+        + [("diagnostic.html", "Diagnostic", "diagnostic")]
+    return "".join(f'<a href="{href}"{" aria-current=\"page\"" if key == current else ""}>{html.escape(title)}</a>'
+                   for href, title, key in links)
+
+
+def render_diagnostic(con, pages, files, updated, now):
+    """diagnostic.html: per-source result of the last scan, history and coverage."""
+    page_of = {s: p for p in pages for s in p["sources"]}
+    history = {}
+    for r in con.execute("SELECT source, ok, ts FROM runs WHERE ts IN "
+                         "(SELECT DISTINCT ts FROM runs ORDER BY ts DESC LIMIT 14) ORDER BY ts"):
+        history.setdefault(r["source"], []).append(r)
+    last_ts = con.execute("SELECT MAX(ts) FROM runs").fetchone()[0]
+    rows, passed, total = [], 0, 0
+    for name in PARSERS:
+        enabled = CFG["sources"].get(name, True)
+        last = con.execute("SELECT * FROM runs WHERE source = ? ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
+        ok_ts = con.execute("SELECT MAX(ts) FROM runs WHERE source = ? AND ok = 1", (name,)).fetchone()[0]
+        listed, until = con.execute(
+            'SELECT COUNT(*), MAX(start) FROM events WHERE source = ? AND (start >= ? OR "end" >= ?)',
+            (name, now.isoformat(), now.isoformat())).fetchone()
+        p = page_of.get(name, pages[0])
+        if not enabled:
+            state = '<span class="pill off">disabled</span>'
+        elif not last:
+            state = '<span class="pill off">not run yet</span>'
+        elif last["ts"] != last_ts:
+            state = '<span class="pill off">not in last scan</span>'
+        else:
+            total += 1
+            passed += last["ok"]
+            state = '<span class="pill ok">✓ passed</span>' if last["ok"] else '<span class="pill bad">✗ failed</span>'
+        fmt = lambda ts: ts[:16].replace("T", " ") if ts else "–"
+        strip = "".join(f'<i class="{"ok" if r["ok"] else "bad"}" title="{fmt(r["ts"])}: '
+                        f'{"passed" if r["ok"] else "failed"}"></i>' for r in history.get(name, []))
+        found = last["parsed"] if last and last["parsed"] is not None else "–"
+        rows.append(
+            f'<tr><td><b>{html.escape(name)}</b></td>'
+            f'<td><a href="{files.get(p["id"], "index.html")}">{html.escape(p["title"])}</a></td>'
+            f'<td>{state}</td><td class="n">{found}</td><td class="n">{last["count"] if last else "–"}</td>'
+            f'<td class="n">{listed}</td><td>{until[:10] if until else "–"}</td>'
+            f'<td>{fmt(ok_ts) if not (last and last["ok"]) else "this scan"}</td>'
+            f'<td class="n">{f"{last["seconds"]:.1f}s" if last and last["seconds"] is not None else "–"}</td>'
+            f'<td><span class="strip">{strip}</span></td>'
+            f'<td class="msg">{html.escape(last["message"] or "") if last else ""}</td></tr>')
+    summary = (f'<span class="pill {"ok" if passed == total else "bad"}">{passed} of {total} passed</span> '
+               f'in the last scan')
+    page = ((ROOT / "diagnostic.html").read_text().replace("__NAV__", nav_html(pages, files, "diagnostic"))
+            .replace("__UPDATED__", updated).replace("__SUMMARY__", summary).replace("__ROWS__", "\n".join(rows)))
+    write_atomic(ROOT / "site" / "diagnostic.html", page)
+    log.info("rendered diagnostic page: %d of %d sources passed", passed, total)
 
 
 def write_atomic(target: Path, content: str):
