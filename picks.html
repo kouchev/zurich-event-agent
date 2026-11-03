@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zurich Events · My picks</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
+    --accent: #b4321e; --accent-soft: #fbeae6; --today: #fff6d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --card: #1e1e21; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+            --accent: #ff7a63; --accent-soft: #3a2420; --today: #2f2a1a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { border-bottom: 1px solid var(--line); padding: 14px 16px 10px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px;
+            border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current=page] { color: var(--ink); border-bottom-color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta a, .meta button { color: var(--ink); }
+  .meta button { border: 0; background: none; font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
+  main { padding: 16px; }
+  .monthbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .monthbar h2 { font-size: 17px; margin: 0 auto 0 0; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px;
+         padding: 5px 11px; font: inherit; font-size: 13.5px; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--line); gap: 1px;
+          border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .dow { background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 600; text-align: center; padding: 5px 0; }
+  .day { background: var(--card); min-height: 92px; padding: 4px 5px; font-size: 12px; min-width: 0; }
+  .day.out { background: var(--bg); color: var(--muted); }
+  .day.today { background: var(--today); }
+  .day .n { font-weight: 600; font-size: 12px; color: var(--muted); }
+  .day.today .n { color: var(--accent); }
+  .day a { display: block; margin-top: 3px; padding: 2px 4px; border-radius: 4px; background: var(--accent-soft);
+           color: var(--accent); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+           font-size: 11.5px; line-height: 1.35; }
+  .day a:hover { text-decoration: underline; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+       margin: 26px 0 8px; font-weight: 600; }
+  .ev { display: grid; grid-template-columns: 108px 1fr auto; gap: 12px; align-items: start; background: var(--card);
+        border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+  .ev.past { opacity: .55; }
+  .when { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13.5px; }
+  .title { font-weight: 600; color: var(--ink); text-decoration: none; }
+  .title:hover { text-decoration: underline; }
+  .sub { color: var(--muted); font-size: 13.5px; }
+  .rm { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px;
+        width: 30px; height: 30px; font: inherit; font-weight: 700; cursor: pointer; }
+  .rm:hover { background: var(--accent); color: #fff; }
+  .note { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; color: var(--muted); }
+  .note b { color: var(--ink); }
+  @media (max-width: 640px) {
+    .day { min-height: 46px; padding: 3px; }
+    .day a { font-size: 0; height: 6px; padding: 0; margin-top: 2px; background: var(--accent); }
+    .ev { grid-template-columns: 1fr auto; }
+    .ev .when { grid-column: 1 / -1; margin-bottom: -8px; }
+  }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Zurich Events</h1>
+  <nav class="tabs" aria-label="Pages">__NAV__</nav>
+  <div class="meta">Events you selected with + on any page · last scan __UPDATED__ · <span id="count"></span>
+    <span id="feed" hidden> · 📅 <a id="sub" href="#">Subscribe in your calendar app</a> ·
+      <button id="copy">Copy calendar link</button></span></div>
+</div></header>
+<main class="wrap" id="main"><div class="note">Loading…</div></main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const TZ = "Europe/Zurich";
+const ymd = new Intl.DateTimeFormat("en-CA", {year: "numeric", month: "2-digit", day: "2-digit", timeZone: TZ});
+const dayKey = d => ymd.format(d);                        // "2026-11-04" in Zurich time
+const timeFmt = new Intl.DateTimeFormat("de-CH", {hour: "2-digit", minute: "2-digit", timeZone: TZ});
+const listFmt = new Intl.DateTimeFormat("en-GB", {weekday: "short", day: "numeric", month: "short", timeZone: TZ});
+const monthFmt = new Intl.DateTimeFormat("en-GB", {month: "long", year: "numeric"});
+
+let key = "";
+try {
+  const u = new URL(location.href), k = u.searchParams.get("key");
+  if (k) { localStorage.setItem("syncKey", k); u.searchParams.delete("key"); history.replaceState(null, "", u); }
+  key = localStorage.getItem("syncKey") || "";
+} catch {}
+const api = body => fetch(`/api/picks?key=${encodeURIComponent(key)}`, body &&
+  {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
+let events = [], shown = new Date();   // shown = any day in the displayed month
+shown.setDate(1);
+
+function note(html) { $("main").innerHTML = `<div class="note">${html}</div>`; }
+
+function load() {
+  if (!key) return note(`<b>No sync key in this browser.</b> Open the link with your key once
+    (…/my.html?key=SECRET); the key is in <code>picks.key</code> on the server.`);
+  api().then(r => {
+    events = r.events.sort((a, b) => a.start.localeCompare(b.start));
+    const feed = new URL(`/my.ics?key=${encodeURIComponent(key)}`, location.href).href;
+    $("sub").href = feed.replace(/^https?:/, "webcal:");
+    $("copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(feed); $("copy").textContent = "Copied ✓"; }
+      catch { prompt("Calendar address:", feed); }
+    };
+    $("feed").hidden = false;
+    // open on the month of the next upcoming pick (or this month)
+    const next = events.find(e => new Date(e.end || e.start) >= new Date());
+    if (next) { shown = new Date(dayKey(new Date(next.start)) + "T12:00"); shown.setDate(1); }
+    draw();
+  }).catch(err => note(String(err).includes("403")
+    ? "<b>The sync key in this browser was not accepted.</b> Open the site again with the current key link."
+    : "<b>The server could not be reached.</b> This tab only works on the self-hosted site (events.3dation.com)."));
+}
+
+// days an event covers: one for concerts, every day up to the end date for exhibitions
+function daysOf(e) {
+  const first = dayKey(new Date(e.start)), last = e.end ? dayKey(new Date(e.end)) : first, out = [];
+  for (let d = new Date(first + "T12:00"); dayKey(d) <= last && out.length < 400; d.setDate(d.getDate() + 1))
+    out.push(dayKey(d));
+  return out;
+}
+const whenText = e => e.allday || e.end ? (e.end ? "until " + listFmt.format(new Date(e.end)) : "all day")
+                                        : timeFmt.format(new Date(e.start));
+
+function draw() {
+  $("count").textContent = `${events.length} selected`;
+  if (!events.length) return note(`<b>Nothing selected yet.</b> Click <b>+</b> on an event in Culture, Theater or
+    Education and it shows up here and in your calendar.`);
+  const byDay = new Map();
+  for (const e of events) for (const d of daysOf(e)) (byDay.get(d) || byDay.set(d, []).get(d)).push(e);
+
+  const y = shown.getFullYear(), m = shown.getMonth(), today = dayKey(new Date());
+  const start = new Date(y, m, 1 - ((new Date(y, m, 1).getDay() + 6) % 7), 12);   // Monday on or before the 1st
+  let cells = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => `<div class="dow">${d}</div>`).join("");
+  for (let i = 0, d = new Date(start); i < 42; i++, d.setDate(d.getDate() + 1)) {
+    if (i === 35 && d.getMonth() !== m) break;    // skip an empty sixth week
+    const k = dayKey(d), list = byDay.get(k) || [];
+    cells += `<div class="day${d.getMonth() !== m ? " out" : ""}${k === today ? " today" : ""}">
+      <div class="n">${d.getDate()}</div>${list.map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener"
+        title="${esc(whenText(e) + " · " + e.title + " · " + e.venue)}">${e.allday || e.end ? "" :
+        esc(timeFmt.format(new Date(e.start))) + " "}${esc(e.title)}</a>`).join("")}</div>`;
+  }
+
+  const now = new Date(), upcoming = events.filter(e => new Date(e.end || e.start) >= now),
+        past = events.filter(e => !upcoming.includes(e));
+  const row = e => `<article class="ev${upcoming.includes(e) ? "" : " past"}">
+      <div class="when">${esc(listFmt.format(new Date(e.start)))}<br><span class="sub">${esc(whenText(e))}</span></div>
+      <div><a class="title" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>
+        ${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}<div class="sub">${esc(e.venue)}</div></div>
+      <button class="rm" data-id="${esc(e.id)}" title="Remove from my picks" aria-label="Remove ${esc(e.title)}">✓</button>
+    </article>`;
+  $("main").innerHTML = `<div class="monthbar"><h2>${monthFmt.format(shown)}</h2>
+      <button class="btn" data-nav="-1" aria-label="Previous month">‹</button>
+      <button class="btn" data-nav="0">Today</button>
+      <button class="btn" data-nav="1" aria-label="Next month">›</button></div>
+    <div class="grid">${cells}</div>
+    <h3>Upcoming (${upcoming.length})</h3>${upcoming.map(row).join("") || `<div class="note">No upcoming picks.</div>`}
+    ${past.length ? `<h3>Past (${past.length})</h3>${past.map(row).join("")}` : ""}`;
+}
+
+$("main").addEventListener("click", ev => {
+  const nav = ev.target.closest("[data-nav]");
+  if (nav) {
+    const n = +nav.dataset.nav;
+    shown = n ? new Date(shown.getFullYear(), shown.getMonth() + n, 1) : new Date(new Date().setDate(1));
+    return draw();
+  }
+  const rm = ev.target.closest(".rm");
+  if (!rm) return;
+  rm.disabled = true;
+  api({remove: [rm.dataset.id]}).then(() => {
+    events = events.filter(e => e.id !== rm.dataset.id);
+    for (const k of Object.keys(localStorage))        // keep the section pages' local copy in step
+      if (k.startsWith("selected:")) try {
+        localStorage.setItem(k, JSON.stringify(JSON.parse(localStorage.getItem(k)).filter(i => i !== rm.dataset.id)));
+      } catch {}
+    draw();
+  }).catch(() => { rm.disabled = false; alert("Could not remove it — the server did not answer."); });
+});
+load();
+</script>
+</body>
+</html>

@@ -82,8 +82,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(403, {"error": "wrong or missing key"})
         with LOCK:
             ids = load_picks()
-        if url.path == "/api/picks":
-            return self.send_json(200, {"ids": ids})
+        if url.path == "/api/picks":   # ids, plus the event details for the My picks tab
+            return self.send_json(200, {"ids": ids, "events": picked_events(ids)})
         cal = ics_calendar("Zurich Events · My picks", picked_events(ids), dt.datetime.now(TZ))
         self.send(200, cal.encode(), "text/calendar; charset=utf-8")
 

@@ -83,6 +83,10 @@ bar, syncs the selection, and shows the feed link in the footer. Without the key
 stays in the browser, as on GitHub Pages, which has no server. To lock out a leaked key, delete
 `picks.key` and restart `serve.sh`; a new one is created.
 
+The **My picks** tab (`my.html`, from `picks.html`) shows the selection as a month calendar
+and an agenda list, with ✓ to remove an event. It loads the events from `/api/picks`, so it
+too works only on the self-hosted site.
+
 ## Domain (Cloudflare Tunnel)
 
 The site is public at **https://events.3dation.com**. `3dation.com` uses Cloudflare's nameservers,

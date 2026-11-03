@@ -969,11 +969,14 @@ def render(con):
     write_atomic(out / "index.html", home)
     log.info("rendered home page with %d sections", len(pages))
     render_diagnostic(con, pages, files, updated, now)
+    # My picks: the events selected with + (loaded in the browser from server.py's /api/picks)
+    write_atomic(out / "my.html", (ROOT / "picks.html").read_text()
+                 .replace("__NAV__", nav_html(pages, files, "my")).replace("__UPDATED__", updated))
 
 
 def nav_html(pages, files, current) -> str:
     links = [("index.html", "Home", "home")] + [(files[p["id"]], p["title"], p["id"]) for p in pages] \
-        + [("diagnostic.html", "Diagnostic", "diagnostic")]
+        + [("my.html", "My picks", "my"), ("diagnostic.html", "Diagnostic", "diagnostic")]
     return "".join(f'<a href="{href}"{" aria-current=\"page\"" if key == current else ""}>{html.escape(title)}</a>'
                    for href, title, key in links)
 

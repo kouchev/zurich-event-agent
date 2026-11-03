@@ -255,8 +255,12 @@ if (syncKey && location.protocol.startsWith("http")) {
     try { await navigator.clipboard.writeText(myUrl); $("myCopy").textContent = "Copied ✓"; }
     catch { prompt("My picks calendar address:", myUrl); }
   });
-  // merge: picks made in this browser go up, picks from other devices come down
-  api({add: [...picked]}).then(({ids}) => {
+  // First sync in this browser: picks made here before go up. After that the server's list wins,
+  // so a pick removed on another device (or on the My picks tab) does not come back.
+  let first = true;
+  try { first = !localStorage.getItem("picksSynced"); } catch {}
+  (first ? api({add: [...picked]}) : api()).then(({ids}) => {
+    try { localStorage.setItem("picksSynced", "1"); } catch {}
     picked = new Set(ids.filter(id => byId.has(id))); saveLocal(); draw(); updateBar();
     $("myFeed").hidden = false; syncNote("In sync ✓");
   }).catch(err => { $("myFeed").hidden = false;
