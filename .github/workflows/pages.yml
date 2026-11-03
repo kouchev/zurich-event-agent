@@ -1,0 +1,73 @@
+# Daily scan on GitHub Actions, published to GitHub Pages.
+# events.db (NEW badges, scan history) is kept between runs on the "data" branch.
+name: Scan and publish
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # daily, 06:17 / 07:17 Zurich time (winter / summer)
+  workflow_dispatch:        # "Run workflow" button on the Actions tab
+  push:
+    branches: [main]
+    paths: ["agent.py", "config.toml", "*.html", ".github/workflows/pages.yml"]
+
+permissions:
+  contents: write   # save events.db to the data branch
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  TZ: Europe/Zurich
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore events.db from the data branch
+        run: |
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            git show FETCH_HEAD:events.db > events.db
+          else
+            echo "No data branch yet: starting with an empty database."
+          fi
+
+      # On push, only re-render with the saved data; scheduled and manual runs fetch the sources.
+      - name: Scan sources and render site
+        run: python agent.py ${{ github.event_name == 'push' && '--render' || '' }}
+
+      - name: Save events.db to the data branch
+        if: github.event_name != 'push'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          d=$(mktemp -d) && cp events.db "$d/" && cd "$d"
+          git init -q -b data && git add events.db
+          git -c user.name="github-actions[bot]" -c user.email="41898283+github-actions[bot]@users.noreply.github.com" \
+              commit -qm "events.db after run ${{ github.run_id }}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git" data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: scan
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

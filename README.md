@@ -50,3 +50,15 @@ Schedule with `crontab -e`:
 ```
 
 The page has no login; with `BIND=0.0.0.0` anyone who knows the address can view it.
+
+## Hosting on GitHub Pages
+
+`.github/workflows/pages.yml` runs the scan on GitHub Actions every day (about 07:00 Zurich time)
+and publishes `site/` to GitHub Pages. You can also start it by hand with **Run workflow** on the
+Actions tab. A push to `main` that changes the code, config or templates only re-renders the
+pages from the saved data. `events.db` is kept between runs on the `data` branch, which holds a
+single commit that each run replaces. Delete that branch to start over with an empty database.
+
+One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+The site is public even if the repository is private. Pages for a private repository needs a
+paid GitHub plan.
