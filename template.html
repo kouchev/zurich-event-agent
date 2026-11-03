@@ -34,6 +34,9 @@
   .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px;
           padding: 3px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
   .chip[aria-pressed=false] { opacity: .45; }
+  .chip.bulk { background: transparent; border-style: dashed; color: var(--muted); font-weight: 600; }
+  .chip.bulk:hover { color: var(--ink); border-color: var(--muted); }
+  .chip.bulk[data-act=none] { margin-right: 6px; }
   main { padding: 6px 16px 40px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
        margin: 22px 0 8px; font-weight: 600; }
@@ -88,12 +91,17 @@ const HIDDEN_KEY = "hiddenVenues:__PAGEID__";
 let hidden = new Set();
 try { hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]")); } catch {}
 
-$("venues").innerHTML = venues.map(v =>
-  `<button class="chip" data-v="${esc(v)}" aria-pressed="${!hidden.has(v)}">${esc(v)}</button>`).join("");
+$("venues").innerHTML =
+  `<button class="chip bulk" data-act="all">All</button><button class="chip bulk" data-act="none">None</button>` +
+  venues.map(v => `<button class="chip" data-v="${esc(v)}" aria-pressed="${!hidden.has(v)}">${esc(v)}</button>`).join("");
 $("venues").addEventListener("click", ev => {
   const b = ev.target.closest(".chip"); if (!b) return;
-  const v = b.dataset.v; hidden.has(v) ? hidden.delete(v) : hidden.add(v);
-  b.setAttribute("aria-pressed", !hidden.has(v));
+  if (b.dataset.act) {
+    hidden = new Set(b.dataset.act === "none" ? venues : []);
+  } else {
+    const v = b.dataset.v; hidden.has(v) ? hidden.delete(v) : hidden.add(v);
+  }
+  $("venues").querySelectorAll("[data-v]").forEach(c => c.setAttribute("aria-pressed", !hidden.has(c.dataset.v)));
   try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch {}
   draw();
 });
