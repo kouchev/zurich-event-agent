@@ -361,8 +361,6 @@ def eth():
     out = []
     for e in json.loads(fetch(url))["entry-array"]:
         cls, loc = e.get("classification", {}), e.get("location", {})
-        if cls.get("target-group-desc") in ("Employees", "Lecturers"):
-            continue
         title = e["content"]["title"]
         link = f"https://ethz.ch/en/news-and-events/events/details.{re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')[:60] or 'event'}.{e['id']}.html"
         where = loc.get("internal", {})
@@ -479,15 +477,31 @@ def render(con):
     events = [dict(r) for r in rows]
     for e in events:
         e["new"] = e["first_seen"] == last_run
+    pages = CFG["pages"]
+    assigned = {s for p in pages for s in p["sources"]}
+    for s in sorted(set(PARSERS) - assigned):
+        log.warning("source %s is not on any page; showing it on %s", s, pages[0]["title"])
+    files = {p["id"]: "index.html" if i == 0 else f"{p['id']}.html" for i, p in enumerate(pages)}
     tpl = (ROOT / "template.html").read_text()
-    page = (tpl.replace("/*EVENTS*/[]", json.dumps(events, ensure_ascii=False).replace("</", "<\\/"))
-               .replace("/*STATUS*/[]", json.dumps([dict(s) for s in status], ensure_ascii=False))
-               .replace("__UPDATED__", html.escape(last_run[:16].replace("T", " ") if last_run else "never")))
     out = ROOT / "site"
     out.mkdir(exist_ok=True)
-    (out / "index.html.tmp").write_text(page)
-    (out / "index.html.tmp").replace(out / "index.html")
-    log.info("rendered %d events to %s", len(events), out / "index.html")
+    for i, p in enumerate(pages):
+        srcs = set(p["sources"]) | ((set(PARSERS) - assigned) if i == 0 else set())
+        mine = [e for e in events if e["source"] in srcs]
+        nav = "".join(f'<a href="{files[q["id"]]}"{" aria-current=\"page\"" if q is p else ""}>'
+                      f'{html.escape(q["title"])}</a>' for q in pages)
+        page = (tpl.replace("/*EVENTS*/[]", json.dumps(mine, ensure_ascii=False).replace("</", "<\\/"))
+                   .replace("/*STATUS*/[]", json.dumps([dict(s) for s in status if s["source"] in srcs],
+                                                       ensure_ascii=False))
+                   .replace("__PAGEID__", html.escape(p["id"]))
+                   .replace("__PAGETITLE__", html.escape(p["title"]))
+                   .replace("__DESCRIPTION__", html.escape(p.get("description", "")))
+                   .replace("__NAV__", nav)
+                   .replace("__UPDATED__", html.escape(last_run[:16].replace("T", " ") if last_run else "never")))
+        target = out / files[p["id"]]
+        target.with_suffix(".tmp").write_text(page)
+        target.with_suffix(".tmp").replace(target)
+        log.info("rendered %d events to %s", len(mine), target)
 
 
 def main():

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zurich Events</title>
+<title>Zurich Events · __PAGETITLE__</title>
 <style>
   :root {
     --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
@@ -20,6 +20,11 @@
            padding: 14px 16px 10px; }
   .wrap { max-width: 860px; margin: 0 auto; }
   h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px;
+            border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current=page] { color: var(--ink); border-bottom-color: var(--accent); }
   .meta { color: var(--muted); font-size: 13px; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
   input[type=search] { flex: 1 1 220px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
@@ -53,7 +58,8 @@
 <body>
 <header><div class="wrap">
   <h1>Zurich Events</h1>
-  <div class="meta">Music &amp; culture · last scan __UPDATED__ · <span id="count"></span></div>
+  <nav class="tabs" aria-label="Pages">__NAV__</nav>
+  <div class="meta">__DESCRIPTION__ · last scan __UPDATED__ · <span id="count"></span></div>
   <div class="controls">
     <input type="search" id="q" placeholder="Search title, artist, venue, genre…" aria-label="Search">
     <label class="tog"><input type="checkbox" id="onlyNew"> New only</label>
@@ -70,8 +76,9 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const venueKey = e => e.venue.split(" – ")[0];
 const venues = [...new Set(EVENTS.map(venueKey))].sort();
+const HIDDEN_KEY = "hiddenVenues:__PAGEID__";
 let hidden = new Set();
-try { hidden = new Set(JSON.parse(localStorage.getItem("hiddenVenues") || "[]")); } catch {}
+try { hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]")); } catch {}
 
 $("venues").innerHTML = venues.map(v =>
   `<button class="chip" data-v="${esc(v)}" aria-pressed="${!hidden.has(v)}">${esc(v)}</button>`).join("");
@@ -79,7 +86,7 @@ $("venues").addEventListener("click", ev => {
   const b = ev.target.closest(".chip"); if (!b) return;
   const v = b.dataset.v; hidden.has(v) ? hidden.delete(v) : hidden.add(v);
   b.setAttribute("aria-pressed", !hidden.has(v));
-  try { localStorage.setItem("hiddenVenues", JSON.stringify([...hidden])); } catch {}
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch {}
   draw();
 });
 ["q", "onlyNew", "onlyStar"].forEach(id => $(id).addEventListener("input", draw));

@@ -1,11 +1,12 @@
 # Zurich event agent
 
-Scrapes music & culture programmes from Zurich venues once a day and publishes them
-as a searchable page (`site/index.html`).
+Scrapes event programmes from Zurich venues and universities once a day and publishes them
+as a small multi-page site in `site/`: one page per `[[pages]]` block in `config.toml`
+(currently Culture → `index.html`, Education → `education.html`), with tabs between them.
 
 | File | Purpose |
 |---|---|
-| `config.toml` | exclude / highlight keywords, days ahead, sources on/off |
+| `config.toml` | exclude / highlight keywords, days ahead, sources on/off, pages and their sources |
 | `agent.py` | one parser per venue + SQLite storage + page rendering |
 | `template.html` | the page layout |
 | `run.sh` | daily scan (logs to `cron.log`) |

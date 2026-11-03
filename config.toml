@@ -12,7 +12,6 @@ max_pages = 20              # upper limit when following a site's "next page" li
 exclude = [
   "schulworkshop", "schulen", "schulklasse", "für schulen",
   "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung",
-  "doctoral examination",   # ETH PhD defences; remove this line to see them
 ]
 # Events matching any "highlight" term get a ★ and can be shown alone via "Starred only".
 highlight = [
@@ -36,3 +35,18 @@ rigiblick = true
 kunsthaus = true
 eth = true
 uzh = true
+
+# Pages of the web site, in tab order. The first page is the start page (index.html).
+# Each source belongs to one page; to add a page, add a [[pages]] block and move sources into it.
+[[pages]]
+id = "culture"
+title = "Culture"
+description = "Music, theatre, opera & exhibitions"
+sources = ["opernhaus", "tonhalle", "schauspielhaus", "moods", "kaufleuten", "bogenf", "rotefabrik",
+           "gessnerallee", "hallenstadion", "museum_gestaltung", "rigiblick", "kunsthaus"]
+
+[[pages]]
+id = "education"
+title = "Education"
+description = "Lectures, seminars & public events at ETH and UZH"
+sources = ["eth", "uzh"]
