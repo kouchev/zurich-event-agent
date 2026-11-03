@@ -13,11 +13,8 @@ exclude = [
   "schulworkshop", "schulen", "schulklasse", "für schulen",
   "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung",
 ]
-# Events matching any "highlight" term get a ★ and can be shown alone via "Starred only".
-highlight = [
-  "jazz", "quartet", "quartett", "trio", "piano", "klavier", "orchester",
-  "oper", "opera", "ballett", "ballet", "premiere", "ausstellung", "exhibition",
-]
+# Star words are set per page (see [[pages]] below): an event containing one of its page's
+# "highlight" words (whole words) gets a ★ and can be shown alone via "Starred only".
 
 # Toggle individual sources on/off.
 [sources]
@@ -36,7 +33,7 @@ kunsthaus = true
 eth = true
 uzh = true
 
-# Pages of the web site, in tab order. The first page is the start page (index.html).
+# Pages of the web site, in tab order; each renders to <id>.html and gets a card on the home page (index.html).
 # Each source belongs to one page; to add a page, add a [[pages]] block and move sources into it.
 [[pages]]
 id = "culture"
@@ -44,9 +41,12 @@ title = "Culture"
 description = "Music, theatre, opera & exhibitions"
 sources = ["opernhaus", "tonhalle", "schauspielhaus", "moods", "kaufleuten", "bogenf", "rotefabrik",
            "gessnerallee", "hallenstadion", "museum_gestaltung", "rigiblick", "kunsthaus"]
+highlight = ["jazz", "quartet", "quartett", "trio", "piano", "klavier", "orchester",
+             "oper", "opera", "ballett", "ballet", "premiere", "ausstellung", "exhibition"]
 
 [[pages]]
 id = "education"
 title = "Education"
 description = "Lectures, seminars & public events at ETH and UZH"
 sources = ["eth", "uzh"]
+highlight = []   # add your topics, e.g. ["circuit", "semiconductor", "machine learning"]

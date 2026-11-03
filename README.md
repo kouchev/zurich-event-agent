@@ -1,8 +1,9 @@
 # Zurich event agent
 
 Scrapes event programmes from Zurich venues and universities once a day and publishes them
-as a small multi-page site in `site/`: one page per `[[pages]]` block in `config.toml`
-(currently Culture → `index.html`, Education → `education.html`), with tabs between them.
+as a small multi-page site in `site/`: a home page (`index.html`) with a card per section, and one
+page per `[[pages]]` block in `config.toml` (currently `culture.html` and `education.html`), with tabs
+between them. Each page has its own `highlight` star words (whole-word match).
 
 | File | Purpose |
 |---|---|

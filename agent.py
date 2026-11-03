@@ -426,9 +426,18 @@ def db() -> sqlite3.Connection:
     return con
 
 
-def matches(e, terms):
+def matches(e, terms, whole_words=False):
     hay = " ".join((e["title"], e["subtitle"], e["category"], e["venue"])).lower()
+    if whole_words:   # "oper" should not match "Operationalizing" or "Property"
+        return any(re.search(rf"\b{re.escape(t.lower())}\b", hay) for t in terms)
     return any(t.lower() in hay for t in terms)
+
+
+def highlight_terms(source) -> list:
+    """Star words of the page this source is shown on (the first page if it is on none)."""
+    pages = CFG["pages"]
+    page = next((p for p in pages if source in p["sources"]), pages[0])
+    return page.get("highlight", [])
 
 
 def collect(con):
@@ -458,7 +467,7 @@ def collect(con):
                     start=excluded.start, allday=excluded.allday, category=excluded.category,
                     highlight=excluded.highlight, last_seen=excluded.last_seen, "end"=excluded."end" """,
                 (eid, e["source"], e["venue"], e["title"], e["subtitle"], e["start"].isoformat(),
-                 int(e["allday"]), e["url"], e["category"], int(matches(e, flt["highlight"])),
+                 int(e["allday"]), e["url"], e["category"], int(matches(e, highlight_terms(name), whole_words=True)),
                  now.isoformat(), now.isoformat(), e["end"] and e["end"].isoformat()))
             kept += 1
         log.info("%s: %d parsed, %d kept", name, len(events), kept)
@@ -481,15 +490,19 @@ def render(con):
     assigned = {s for p in pages for s in p["sources"]}
     for s in sorted(set(PARSERS) - assigned):
         log.warning("source %s is not on any page; showing it on %s", s, pages[0]["title"])
-    files = {p["id"]: "index.html" if i == 0 else f"{p['id']}.html" for i, p in enumerate(pages)}
+    files = {p["id"]: f"{p['id']}.html" for p in pages}
     tpl = (ROOT / "template.html").read_text()
     out = ROOT / "site"
     out.mkdir(exist_ok=True)
+    updated = html.escape(last_run[:16].replace("T", " ") if last_run else "never")
+    cards = []
     for i, p in enumerate(pages):
         srcs = set(p["sources"]) | ((set(PARSERS) - assigned) if i == 0 else set())
         mine = [e for e in events if e["source"] in srcs]
-        nav = "".join(f'<a href="{files[q["id"]]}"{" aria-current=\"page\"" if q is p else ""}>'
-                      f'{html.escape(q["title"])}</a>' for q in pages)
+        cards.append(home_card(p, files[p["id"]], mine, now))
+        nav = '<a href="index.html">Home</a>' + "".join(
+            f'<a href="{files[q["id"]]}"{" aria-current=\"page\"" if q is p else ""}>'
+            f'{html.escape(q["title"])}</a>' for q in pages)
         page = (tpl.replace("/*EVENTS*/[]", json.dumps(mine, ensure_ascii=False).replace("</", "<\\/"))
                    .replace("/*STATUS*/[]", json.dumps([dict(s) for s in status if s["source"] in srcs],
                                                        ensure_ascii=False))
@@ -497,11 +510,34 @@ def render(con):
                    .replace("__PAGETITLE__", html.escape(p["title"]))
                    .replace("__DESCRIPTION__", html.escape(p.get("description", "")))
                    .replace("__NAV__", nav)
-                   .replace("__UPDATED__", html.escape(last_run[:16].replace("T", " ") if last_run else "never")))
-        target = out / files[p["id"]]
-        target.with_suffix(".tmp").write_text(page)
-        target.with_suffix(".tmp").replace(target)
-        log.info("rendered %d events to %s", len(mine), target)
+                   .replace("__UPDATED__", updated))
+        write_atomic(out / files[p["id"]], page)
+        log.info("rendered %d events to %s", len(mine), out / files[p["id"]])
+    home = (ROOT / "home.html").read_text().replace("__CARDS__", "\n".join(cards)).replace("__UPDATED__", updated)
+    write_atomic(out / "index.html", home)
+    log.info("rendered home page with %d sections", len(pages))
+
+
+def write_atomic(target: Path, content: str):
+    target.with_suffix(".tmp").write_text(content)
+    target.with_suffix(".tmp").replace(target)
+
+
+def home_card(page, href, events, now) -> str:
+    """Card for the home page: counts plus the next few upcoming items (starred first)."""
+    upcoming = [e for e in events if dt.datetime.fromisoformat(e["start"]) >= now]
+    picks = ([e for e in upcoming if e["highlight"]] + [e for e in upcoming if not e["highlight"]])[:4]
+    picks.sort(key=lambda e: e["start"])
+    new = sum(e["new"] for e in events)
+    rows = "".join(
+        f'<li><span class="when">{dt.datetime.fromisoformat(e["start"]).strftime("%a %d.%m")}</span>'
+        f'<span class="what">{"★ " if e["highlight"] else ""}{html.escape(e["title"])}</span></li>'
+        for e in picks)
+    return (f'<a class="card" href="{href}"><h2>{html.escape(page["title"])}</h2>'
+            f'<div class="desc">{html.escape(page.get("description", ""))}</div>'
+            f'<div class="stats"><span class="num">{len(events)}</span><span class="unit">events</span>'
+            f'{f"<span class=badge>{new} new</span>" if new else ""}</div>'
+            f'<ul>{rows}</ul><div class="go">Open {html.escape(page["title"])} →</div></a>')
 
 
 def main():
