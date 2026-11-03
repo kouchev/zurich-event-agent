@@ -21,6 +21,7 @@ the last 14 scans and any error; the home page links to it with a health summary
 | `template.html`, `home.html`, `diagnostic.html` | page layouts |
 | `run.sh` | daily scan (logs to `cron.log`) |
 | `serve.sh` | serves `site/` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
+| `tunnel.sh` | runs the Cloudflare Tunnel that publishes the site at https://events.3dation.com |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
 
 Sources: Opernhaus, Tonhalle-Orchester, Schauspielhaus, Moods, Kaufleuten, Bogen F,
@@ -66,10 +67,38 @@ Schedule with `crontab -e`:
 
 ```
 0 7 * * * /path/to/run.sh
-@reboot BIND=0.0.0.0 /path/to/serve.sh
+@reboot /path/to/serve.sh
+@reboot /path/to/tunnel.sh
 ```
 
-The page has no login; with `BIND=0.0.0.0` anyone who knows the address can view it.
+## Domain (Cloudflare Tunnel)
+
+The site is public at **https://events.3dation.com**. `3dation.com` uses Cloudflare's nameservers,
+and `cloudflared` (in `~/.local/bin`, no root needed) opens an outbound tunnel that forwards the
+hostname to `localhost:8765`. The web server itself listens on localhost only, so nothing is
+exposed on the server's IP and Cloudflare provides HTTPS.
+
+Set-up, done once:
+
+```
+cloudflared tunnel login                     # or copy cert.pem to ~/.cloudflared/
+cloudflared tunnel create zurich-events
+cloudflared tunnel route dns zurich-events events.3dation.com
+```
+
+`~/.cloudflared/config.yml` (not in the repo):
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: /home/claude/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: events.3dation.com
+    service: http://localhost:8765
+  - service: http_status:404
+```
+
+The page has no login; anyone with the address can view it. To restrict it, add a
+Cloudflare Access application for `events.3dation.com` (Zero Trust → Access → Applications).
 
 ## Hosting on GitHub Pages
 
