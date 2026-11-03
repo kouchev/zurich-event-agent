@@ -40,15 +40,33 @@
   .chip.bulk { background: transparent; border-style: dashed; color: var(--muted); font-weight: 600; }
   .chip.bulk:hover { color: var(--ink); border-color: var(--muted); }
   .chip.bulk[data-act=none] { margin-right: 6px; }
-  main { padding: 6px 16px 40px; }
+  main { padding: 6px 16px 90px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
        margin: 22px 0 8px; font-weight: 600; }
-  .ev { display: grid; grid-template-columns: 52px 1fr; gap: 12px; background: var(--card);
+  .ev { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; background: var(--card);
         border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
   .ev.star { border-left: 3px solid var(--accent); }
   .time { font-variant-numeric: tabular-nums; font-weight: 600; padding-top: 1px; }
   .time.small { font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.3; }
-  .ev:has(.time.small) { grid-template-columns: 64px 1fr; }
+  .ev:has(.time.small) { grid-template-columns: 64px 1fr auto; }
+  .ev.picked { border-color: var(--accent); background: var(--accent-soft); }
+  .pick { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+          color: var(--muted); font: inherit; font-size: 17px; line-height: 1; cursor: pointer; padding: 0; }
+  .pick:hover { color: var(--ink); border-color: var(--muted); }
+  .pick[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cal1 { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 0;
+          cursor: pointer; text-decoration: underline dotted; }
+  .cal1:hover { color: var(--ink); }
+  #selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: var(--card);
+            border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.08); padding: 10px 16px; }
+  #selbar .wrap { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  #selbar strong { margin-right: auto; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px;
+         padding: 6px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .feed { margin-bottom: 8px; }
+  .feed a, .feed button { color: var(--ink); }
+  .feed button { border: 0; background: none; font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
   .title { font-weight: 600; color: var(--ink); text-decoration: none; }
   .title:hover { text-decoration: underline; }
   .sub { color: var(--muted); font-size: 13.5px; margin-top: 1px; }
@@ -84,7 +102,18 @@
     <input id="topicIn" placeholder="add a topic + Enter" aria-label="Add a star topic" enterkeyhint="done"></div>
 </div></header>
 <main class="wrap" id="list"></main>
-<div class="wrap" style="padding:0 16px 30px"><footer id="status"></footer></div>
+<div class="wrap" style="padding:0 16px 30px"><footer>
+  <div class="feed">📅 Calendar feed of this page's ★ events (__FEEDCOUNT__), updated daily:
+    <a id="feedSub" href="__FEED__">Subscribe</a> ·
+    <button id="feedCopy" title="Paste into Google Calendar: Other calendars → From URL">Copy link</button>.
+    Uses the built-in star words only, not topics added in this browser.</div>
+  <div id="status"></div></footer></div>
+<div id="selbar" hidden><div class="wrap">
+  <strong id="selCount"></strong>
+  <label class="tog"><input type="checkbox" id="onlyPicked"> Show only selected</label>
+  <button class="btn" id="selClear">Clear</button>
+  <button class="btn primary" id="selIcs">Add to calendar (.ics)</button>
+</div></div>
 <script>
 const EVENTS = /*EVENTS*/[];
 const STATUS = /*STATUS*/[];
@@ -151,7 +180,7 @@ const untilFmt = new Intl.DateTimeFormat("de-CH", {day: "2-digit", month: "2-dig
 function draw() {
   const q = $("q").value.trim().toLowerCase();
   const from = $("fromTime").value;   // "HH:MM" or ""
-  const list = EVENTS.filter(e =>
+  const list = $("onlyPicked").checked ? EVENTS.filter(e => picked.has(e.id)) : EVENTS.filter(e =>
     !hidden.has(venueKey(e)) &&
     // events without a start time (all-day, exhibitions) stay visible
     (!from || e.allday || e.end || timeFmt.format(new Date(e.start)) >= from) &&
@@ -171,19 +200,97 @@ function draw() {
     html += card(e, e.allday ? "–" : timeFmt.format(d));
   }
   $("list").innerHTML = html || `<div class="empty">No events match.</div>`;
+  updateBar();
 }
 
 function card(e, when) {
-  return `<article class="ev${starred(e) ? " star" : ""}">
+  const on = picked.has(e.id);
+  return `<article class="ev${starred(e) ? " star" : ""}${on ? " picked" : ""}">
       <div class="time${e.end ? " small" : ""}">${esc(when)}</div>
       <div>
         <a class="title" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>
         ${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}
         <div class="tags"><span>${esc(e.venue)}</span><span>· ${esc(e.category)}</span>
           ${e.new ? `<span class="badge b-new">NEW</span>` : ""}
-          ${starred(e) ? `<span class="badge b-star">★</span>` : ""}</div>
-      </div></article>`;
+          ${starred(e) ? `<span class="badge b-star">★</span>` : ""}
+          <button class="cal1" data-id="${esc(e.id)}" title="Download this event as a calendar file">📅 .ics</button></div>
+      </div>
+      <button class="pick" data-id="${esc(e.id)}" aria-pressed="${on}" title="Select for calendar"
+              aria-label="Select ${esc(e.title)}">${on ? "✓" : "+"}</button></article>`;
 }
+// ---- Selection for calendar export: saved in this browser only, per page.
+const SEL_KEY = "selected:__PAGEID__";
+const byId = new Map(EVENTS.map(e => [e.id, e]));
+let picked = new Set();
+try { picked = new Set(JSON.parse(localStorage.getItem(SEL_KEY) || "[]").filter(id => byId.has(id))); } catch {}
+const savePicked = () => { try { localStorage.setItem(SEL_KEY, JSON.stringify([...picked])); } catch {} };
+function updateBar() {
+  $("selbar").hidden = !picked.size;
+  $("selCount").textContent = `${picked.size} selected`;
+  if (!picked.size && $("onlyPicked").checked) { $("onlyPicked").checked = false; draw(); }
+}
+$("list").addEventListener("click", ev => {
+  const one = ev.target.closest(".cal1");
+  if (one) return downloadIcs([byId.get(one.dataset.id)], "event.ics");
+  const b = ev.target.closest(".pick"); if (!b) return;
+  const id = b.dataset.id; picked.has(id) ? picked.delete(id) : picked.add(id); savePicked();
+  if ($("onlyPicked").checked) return draw();
+  b.setAttribute("aria-pressed", picked.has(id)); b.textContent = picked.has(id) ? "✓" : "+";
+  b.closest(".ev").classList.toggle("picked", picked.has(id));
+  updateBar();
+});
+$("onlyPicked").addEventListener("input", draw);
+$("selClear").addEventListener("click", () => { picked.clear(); savePicked(); draw(); });
+$("selIcs").addEventListener("click", () =>
+  downloadIcs(EVENTS.filter(e => picked.has(e.id)), "zurich-events.ics"));
+
+// ---- iCalendar (RFC 5545). Same format as the daily feed written by agent.py.
+const EVENT_HOURS = 2;   // the sources give no end time
+const icsUtc = d => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const icsDate = iso => iso.slice(0, 10).replace(/-/g, "");   // date as published (Zurich time)
+const nextDay = iso => { const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10).replace(/-/g, ""); };
+const icsText = s => String(s ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,")
+  .replace(/\r/g, "").replace(/\n/g, "\\n");
+function icsFold(line) {   // 75 octets per line, never splitting a character
+  const enc = new TextEncoder(), parts = []; let cur = "", size = 0;
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (size + n > 75 - (parts.length ? 1 : 0)) { parts.push(cur); cur = ""; size = 0; }
+    cur += ch; size += n;
+  }
+  return [...parts, cur].join("\r\n ");
+}
+function icsFile(list) {
+  const stamp = icsUtc(new Date());
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//zurich-event-agent//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  for (const e of list) {
+    const when = (e.allday || e.end)
+      ? [`DTSTART;VALUE=DATE:${icsDate(e.start)}`, `DTEND;VALUE=DATE:${nextDay(e.end || e.start)}`]
+      : [`DTSTART:${icsUtc(new Date(e.start))}`, `DTEND:${icsUtc(new Date(Date.parse(e.start) + EVENT_HOURS * 3600e3))}`];
+    L.push("BEGIN:VEVENT", `UID:${e.id}@zurich-event-agent`, `DTSTAMP:${stamp}`, ...when,
+      `SUMMARY:${icsText(e.title)}`, `LOCATION:${icsText(e.venue)}`,
+      `DESCRIPTION:${icsText([e.subtitle, e.category, e.url].filter(Boolean).join("\n"))}`,
+      `URL:${e.url}`, "END:VEVENT");
+  }
+  L.push("END:VCALENDAR");
+  return L.map(icsFold).join("\r\n") + "\r\n";
+}
+function downloadIcs(list, name) {
+  const url = URL.createObjectURL(new Blob([icsFile(list)], {type: "text/calendar;charset=utf-8"}));
+  const a = Object.assign(document.createElement("a"), {href: url, download: name});
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ---- Subscription feed of this page's starred events (written daily by agent.py)
+const feedUrl = new URL("__FEED__", location.href).href;
+if (/^https?:/.test(feedUrl)) $("feedSub").href = feedUrl.replace(/^https?:/, "webcal:");
+$("feedCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(feedUrl); $("feedCopy").textContent = "Copied ✓"; }
+  catch { prompt("Calendar feed address:", feedUrl); }
+});
+
 setTopics(topics);   // builds the topic chips and draws the list
 
 $("status").innerHTML = "Sources in last scan: " + (STATUS.map(s =>
