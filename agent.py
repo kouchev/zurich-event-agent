@@ -506,6 +506,7 @@ def render(con):
     for i, p in enumerate(pages):
         srcs = set(p["sources"]) | ((set(PARSERS) - assigned) if i == 0 else set())
         mine = [e for e in events if e["source"] in srcs]
+        starred = [e for e in mine if e["highlight"]]
         cards.append(home_card(p, files[p["id"]], mine, now))
         nav = nav_html(pages, files, current=p["id"])
         page = (tpl.replace("/*EVENTS*/[]", json.dumps(mine, ensure_ascii=False).replace("</", "<\\/"))
@@ -515,9 +516,13 @@ def render(con):
                    .replace("__PAGETITLE__", html.escape(p["title"]))
                    .replace("__DESCRIPTION__", html.escape(p.get("description", "")))
                    .replace("__NAV__", nav)
-                   .replace("__UPDATED__", updated))
+                   .replace("__UPDATED__", updated)
+                   .replace("__FEED__", f"{p['id']}-starred.ics")
+                   .replace("__FEEDCOUNT__", str(len(starred))))
         write_atomic(out / files[p["id"]], page)
-        log.info("rendered %d events to %s", len(mine), out / files[p["id"]])
+        write_atomic(out / f"{p['id']}-starred.ics",
+                     ics_calendar(f"Zurich Events · {p['title']} ★", starred, now))
+        log.info("rendered %d events to %s (%d in calendar feed)", len(mine), out / files[p["id"]], len(starred))
     failed = [s["source"] for s in status if not s["ok"]]
     health = (f'<a class="health bad" href="diagnostic.html">⚠ {len(failed)} of {len(status)} sources failed</a>'
               if failed else f'<a class="health" href="diagnostic.html">✓ all {len(status)} sources OK</a>')
@@ -581,6 +586,51 @@ def render_diagnostic(con, pages, files, updated, now):
             .replace("__UPDATED__", updated).replace("__SUMMARY__", summary).replace("__ROWS__", "\n".join(rows)))
     write_atomic(ROOT / "site" / "diagnostic.html", page)
     log.info("rendered diagnostic page: %d of %d sources passed", passed, total)
+
+
+# ---------------------------------------------------------------- calendar feed (RFC 5545)
+
+EVENT_HOURS = 2   # the sources give no end time; calendar entries get this default length
+
+
+def ics_text(s) -> str:
+    return (str(s or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+            .replace("\r", "").replace("\n", "\\n"))
+
+
+def ics_fold(line: str) -> str:
+    """Fold content lines at 75 octets without splitting a UTF-8 character."""
+    parts, cur, size = [], "", 0
+    for ch in line:
+        n = len(ch.encode())
+        if size + n > 75 - (1 if parts else 0):
+            parts.append(cur); cur, size = "", 0
+        cur += ch; size += n
+    return "\r\n ".join(parts + [cur])
+
+
+def ics_event(e, stamp: dt.datetime) -> list:
+    utc = lambda d: d.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    start = dt.datetime.fromisoformat(e["start"])
+    if e["allday"] or e["end"]:   # all-day; exhibitions span until their end date
+        last = dt.datetime.fromisoformat(e["end"]).date() if e["end"] else start.date()
+        when = [f"DTSTART;VALUE=DATE:{start:%Y%m%d}", f"DTEND;VALUE=DATE:{last + dt.timedelta(days=1):%Y%m%d}"]
+    else:
+        when = [f"DTSTART:{utc(start)}", f"DTEND:{utc(start + dt.timedelta(hours=EVENT_HOURS))}"]
+    desc = "\n".join(x for x in (e["subtitle"], e["category"], e["url"]) if x)
+    return ["BEGIN:VEVENT", f"UID:{e['id']}@zurich-event-agent", f"DTSTAMP:{utc(stamp)}", *when,
+            f"SUMMARY:{ics_text(e['title'])}", f"LOCATION:{ics_text(e['venue'])}",
+            f"DESCRIPTION:{ics_text(desc)}", f"URL:{e['url']}", "END:VEVENT"]
+
+
+def ics_calendar(name: str, events, stamp: dt.datetime) -> str:
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//zurich-event-agent//EN", "CALSCALE:GREGORIAN",
+             "METHOD:PUBLISH", f"X-WR-CALNAME:{ics_text(name)}", "X-WR-TIMEZONE:Europe/Zurich",
+             "REFRESH-INTERVAL;VALUE=DURATION:PT12H", "X-PUBLISHED-TTL:PT12H"]
+    for e in events:
+        lines += ics_event(e, stamp)
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(ics_fold(l) for l in lines) + "\r\n"
 
 
 def write_atomic(target: Path, content: str):

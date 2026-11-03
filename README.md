@@ -5,7 +5,12 @@ as a small multi-page site in `site/`: a home page (`index.html`) with a card pe
 page per `[[pages]]` block in `config.toml` (currently `culture.html` and `education.html`), with tabs
 between them. Each page has its own `highlight` star words (whole-word match); viewers can add
 more star topics on the page itself, saved in their browser only. A "From" time field hides events that start earlier
-(e.g. 18:00 for evenings only); events without a start time stay visible. A Diagnostic tab
+(e.g. 18:00 for evenings only); events without a start time stay visible. Viewers can select events
+(the + on each card, kept in their browser) and download them as one `.ics` calendar file, or
+download a single event with its 📅 link. Each page also publishes `<id>-starred.ics`, a calendar
+feed of its starred events (built-in `highlight` words only) that calendar apps can subscribe to;
+it is rewritten on every run. The sources give no end times, so timed events get 2 hours
+(`EVENT_HOURS` in `agent.py` and `template.html`). A Diagnostic tab
 (`diagnostic.html`) shows per source whether the last scan passed, events found/kept, coverage,
 the last 14 scans and any error; the home page links to it with a health summary.
 
