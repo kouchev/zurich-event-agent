@@ -2,7 +2,7 @@
 
 Scrapes event programmes from Zurich venues and universities once a day and publishes them
 as a small multi-page site in `site/`: a home page (`index.html`) with a card per section, and one
-page per `[[pages]]` block in `config.toml` (currently `culture.html` and `education.html`), with tabs
+page per `[[pages]]` block in `config.toml` (currently `culture.html`, `theater.html` and `education.html`), with tabs
 between them. Each page has its own `highlight` star words (whole-word match); viewers can add
 more star topics on the page itself, saved in their browser only. A "From" time field hides events that start earlier
 (e.g. 18:00 for evenings only); events without a start time stay visible. Viewers can select events
@@ -30,12 +30,26 @@ event-calendar JSON APIs). Paginated sites are followed up to `max_pages` or unt
 `days_ahead` is reached. Gessnerallee (~2 weeks) and Moods (~1 month) publish less far ahead.
 Exhibitions carry an end date and appear under "On now" while running.
 
+Theatres (Theater page): in Zürich Theater Neumarkt, Theater am Hechtplatz, Bernhard Theater,
+Theater Winkelwiese, Millers, Theater Stadelhofen (the former Zürcher Puppentheater), Theater Stok,
+Theater Purpur, Tanzhaus Zürich (its calendar JSON feed; trainings and courses are left out),
+sogar theater, Keller62 and Theater 11 (from musical.ch; multi-day runs are listed from first to
+last day, like exhibitions); in Winterthur Theater Winterthur, Casinotheater, Theater am Gleis,
+Kellertheater and Theater Kanton Zürich (which tours the canton; the place is in the subtitle);
+in Baden Kurtheater and ThiK Theater im Kornhaus. Theater Stok and Theater Winterthur load
+their lists with a POST request, as their own pages do. School performances are dropped by
+the `exclude` words.
+
 Not usable: the Zürich Tourismus open-data API (`zuerich.com/en/api/v2/data`) lists
 venues and places but no dated events; Landesmuseum renders its listing client-side;
-tonhalle-maag.ch is no longer the venue's site.
+tonhalle-maag.ch is no longer the venue's site. ZHdK's Theater der Künste is listed only through
+zhdk.ch's event API, which robots.txt disallows (`/api`), and theaterderkuenste.ch is no longer
+the theatre's domain. No "Figurentheater Baden" with its own programme was found (the nearest is
+Figurentheater Wettingen).
 
 The agent identifies itself honestly and obeys robots.txt (RFC 9309: a 4xx on robots.txt
-means no restrictions, a 5xx means stay away). If a site changes its layout,
+means no restrictions, a 5xx means stay away), including a `Crawl-delay` longer than
+`request_delay_seconds`. If a site changes its layout,
 its parser yields 0 events and the page footer marks that source as failed; test a single
 parser with `.venv/bin/python agent.py --only <source>`.
 

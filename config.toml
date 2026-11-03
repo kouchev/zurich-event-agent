@@ -10,8 +10,8 @@ max_pages = 20              # upper limit when following a site's "next page" li
 # Case-insensitive substrings matched against title, subtitle, category and venue.
 # Events matching any "exclude" term are dropped.
 exclude = [
-  "schulworkshop", "schulen", "schulklasse", "für schulen",
-  "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung",
+  "schulworkshop", "schulen", "schulklasse", "für schule", "schulvorstellung", "theater im schulhaus",
+  "lehrpersonen", "corporate event", "eishockey", "swiss cup", "rechtsberatung", "produktionsfragen",
 ]
 # Star words are set per page (see [[pages]] below): an event containing one of its page's
 # "highlight" words (whole words) gets a ★ and can be shown alone via "Starred only".
@@ -32,17 +32,50 @@ rigiblick = true
 kunsthaus = true
 eth = true
 uzh = true
+neumarkt = true
+hechtplatz = true
+bernhard = true
+winkelwiese = true
+millers = true
+stadelhofen = true
+stok = true
+purpur = true
+tanzhaus = true
+sogar = true
+keller62 = true
+theater11 = true
+theater_winterthur = true
+casinotheater = true
+theater_am_gleis = true
+kellertheater_winterthur = true
+tkz = true
+kurtheater = true
+thik = true
 
 # Pages of the web site, in tab order; each renders to <id>.html and gets a card on the home page (index.html).
 # Each source belongs to one page; to add a page, add a [[pages]] block and move sources into it.
 [[pages]]
 id = "culture"
 title = "Culture"
-description = "Music, theatre, opera & exhibitions"
-sources = ["opernhaus", "tonhalle", "schauspielhaus", "moods", "kaufleuten", "bogenf", "rotefabrik",
-           "gessnerallee", "hallenstadion", "museum_gestaltung", "rigiblick", "kunsthaus"]
+description = "Music, opera, ballet & exhibitions"
+sources = ["opernhaus", "tonhalle", "moods", "kaufleuten", "bogenf", "rotefabrik",
+           "hallenstadion", "museum_gestaltung", "kunsthaus"]
 highlight = ["jazz", "quartet", "quartett", "trio", "piano", "klavier", "orchester",
              "oper", "opera", "ballett", "ballet", "premiere", "ausstellung", "exhibition"]
+
+[[pages]]
+id = "theater"
+title = "Theater"
+description = "Theatre, cabaret & dance in Zürich, Winterthur and Baden"
+sources = ["schauspielhaus", "rigiblick", "gessnerallee",
+           # Zürich
+           "neumarkt", "hechtplatz", "bernhard", "winkelwiese", "millers", "stadelhofen", "stok",
+           "purpur", "tanzhaus", "sogar", "keller62", "theater11",
+           # Winterthur
+           "theater_winterthur", "casinotheater", "theater_am_gleis", "kellertheater_winterthur", "tkz",
+           # Baden
+           "kurtheater", "thik"]
+highlight = ["premiere", "uraufführung", "komödie", "tanz", "dance"]
 
 [[pages]]
 id = "education"
