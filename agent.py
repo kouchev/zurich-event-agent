@@ -24,8 +24,9 @@ _robots: dict[str, urllib.robotparser.RobotFileParser] = {}
 _last_hit: dict[str, float] = {}
 
 
-def fetch(url: str) -> str:
-    """GET a URL politely: honest user agent, robots.txt, per-host delay."""
+def fetch(url: str, data: dict | None = None) -> str:
+    """GET (or POST form data to) a URL politely: honest user agent, robots.txt
+    (incl. its Crawl-delay), per-host delay."""
     parts = urllib.parse.urlsplit(url)
     host = parts.netloc
     if host not in _robots:
@@ -44,25 +45,27 @@ def fetch(url: str) -> str:
         _robots[host] = rp
     if not _robots[host].can_fetch(UA, url):
         raise PermissionError(f"robots.txt disallows {url}")
-    wait = CFG["general"]["request_delay_seconds"] - (time.time() - _last_hit.get(host, 0))
+    delay = max(CFG["general"]["request_delay_seconds"], _robots[host].crawl_delay(UA) or 0)
+    wait = delay - (time.time() - _last_hit.get(host, 0))
     if wait > 0:
         time.sleep(wait)
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "de,en"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "de,en"},
+                                 data=urllib.parse.urlencode(data).encode() if data is not None else None)
     with urllib.request.urlopen(req, timeout=30) as r:
         body = r.read().decode("utf-8", "replace")
     _last_hit[host] = time.time()
     return body
 
 
-def soup(url: str) -> BeautifulSoup:
-    s = BeautifulSoup(fetch(url), "html.parser")
+def soup(url: str, data: dict | None = None) -> BeautifulSoup:
+    s = BeautifulSoup(fetch(url, data), "html.parser")
     for t in s(["style", "svg", "noscript"]):
         t.decompose()
     return s
 
 
 def text(node) -> str:
-    return " ".join(node.get_text(" ", strip=True).split()) if node else ""
+    return " ".join(node.get_text(" ", strip=True).replace("\u00ad", "").split()) if node else ""
 
 
 def ev(source, venue, title, start, url, subtitle="", category="", allday=False, end=None):
@@ -403,9 +406,444 @@ def uzh():
     return out
 
 
+# ---- theatres in Zürich, Winterthur and Baden
+
+def clock(s: str):
+    """(hh, mm) from a time like '19:30', '19.30 Uhr', '20h', '19h30' or '20 Uhr'; None if absent.
+    Only call it on text that holds no date, since '07.11' also looks like a time."""
+    m = re.search(r"\b(\d{1,2})(?:[:.](\d{2})|h(\d{2})?|\s*Uhr)", s or "")
+    if not m or int(m[1]) > 23:
+        return None
+    return int(m[1]), int(m[2] or m[3] or 0)
+
+
+def at(y, mo, d, t):
+    """Local start for a date and a clock() result (None → midnight, flagged all-day by the caller)."""
+    return local(y, mo, d, *(t or (0, 0)))
+
+
+def ld_events(s: BeautifulSoup):
+    """schema.org *Event objects from a page's JSON-LD blocks."""
+    for tag in s.find_all("script", type="application/ld+json"):
+        try:
+            d = json.loads(tag.string or "")
+        except ValueError:
+            continue
+        for e in d if isinstance(d, list) else d.get("@graph", [d]):
+            if isinstance(e, dict) and str(e.get("@type", "")).endswith("Event"):
+                yield e
+
+
+def neumarkt():
+    base = "https://theaterneumarkt.ch"
+    out = []
+    for it in soup(base + "/kalender/").select("div.el-event-teaser-item[date-date]"):
+        title, a = it.select_one(".play-title"), it.select_one("a.link-box[href]")
+        if not (title and a):
+            continue
+        sub = title.select_one(".subtitle")
+        for x in title.select(".subtitle, .note"):
+            x.extract()
+        y, mo, d = map(int, it["date-date"].split("-"))
+        t = clock(text(it.select_one(".time")))
+        status = text(it.select_one(".status-desktop"))      # e.g. "Premiere"
+        out.append(ev("neumarkt", "Theater Neumarkt", text(title), at(y, mo, d, t), base + a["href"],
+                      subtitle=" · ".join(filter(None, (text(sub), status, text(it.select_one(".location"))))),
+                      category="Theatre", allday=not t))
+    return out
+
+
+def hechtplatz():
+    base = "https://theaterhechtplatz.ch"
+    out = []
+    for it in soup(base + "/spielplan/").select("div.item.schedule[data-date]"):
+        a = it.select_one("h3.title a[href]")
+        if not a:
+            continue
+        out.append(ev("hechtplatz", "Theater am Hechtplatz", text(a),
+                      dt.datetime.fromisoformat(it["data-date"]).astimezone(TZ),
+                      urllib.parse.urljoin(base, a["href"]), subtitle=text(it.select_one("p.subtitle")),
+                      category="Cabaret / Comedy / Theatre"))
+    return out
+
+
+def bernhard():
+    return paged(lambda n: _bernhard_page(f"https://www.bernhard-theater.ch/spielplan/{f'page{n}' if n > 1 else ''}"))
+
+
+def _bernhard_page(url):
+    # A month heading ("November 2026") precedes its items, but a page that starts mid-month has
+    # none; an item without a day ("noday") is a further show on the previous item's day.
+    out, year, month, day = [], None, None, None
+    months = {m: i for i, m in enumerate("jan feb mär apr mai jun jul aug sep okt nov dez".split(), 1)}
+    s = soup(url)
+    for node in s.select("h2.new_month, div.el-eventlistitem"):
+        if node.name == "h2":
+            m = re.search(r"(\w+)\s+(\d{4})", text(node))
+            if m and m[1][:3].lower() in months:
+                month, year = months[m[1][:3].lower()], int(m[2])
+            continue
+        d = node.select_one(".date h3")
+        if d and text(d).isdigit():
+            day = int(text(d))
+            tiny = node.select(".date .tiny")
+            if len(tiny) > 1 and text(tiny[1])[:3].lower() in months:
+                month = months[text(tiny[1])[:3].lower()]
+        a = node.select_one("a.detail_link[href]")
+        if not (a and month and day):
+            continue
+        t = clock(text(node.select_one(".date .time")))
+        out.append(ev("bernhard", "Bernhard Theater", text(node.select_one(".details h2")),
+                      at(year or infer_year(day, month), month, day, t), urllib.parse.urljoin(url, a["href"]),
+                      subtitle=text(node.select_one(".details p")), category="Theatre / Comedy",
+                      allday=not t))
+    return out
+
+
+def winkelwiese():
+    out = []
+    for li in soup("https://winkelwiese.ch/kalender").select("li.table-list-item"):
+        a = li.select_one("a.production-title[href]")
+        when = text(li.select_one(".list-item-date"))
+        m = re.search(r"(\d{1,2})\.(\d{1,2})\.(.*)", when)
+        if not (a and m):
+            continue
+        d, mo = int(m[1]), int(m[2])
+        t = clock(m[3])
+        col = a.find_parent(class_="list-item-col")     # notes like "Ausverkauft", "zum letzten Mal"
+        note = " · ".join(text(x) for x in col.find_all("span", recursive=False)
+                          if "calendar-links" not in (x.get("class") or [])) if col else ""
+        out.append(ev("winkelwiese", "Theater Winkelwiese", text(a), at(infer_year(d, mo), mo, d, t), a["href"],
+                      subtitle=note, category="Theatre", allday=not t))
+    return out
+
+
+def millers():
+    base = "https://www.millers.ch"
+    out = []
+    for e in ld_events(soup(base + "/spielplan")):
+        url = urllib.parse.urljoin(base, (e.get("offers") or {}).get("url") or "/spielplan")
+        out.append(ev("millers", "Millers", html.unescape(e["name"]),
+                      dt.datetime.fromisoformat(e["startDate"]).astimezone(TZ), url,
+                      category="Theatre / Music / Comedy"))
+    return out
+
+
+def stadelhofen():
+    # Theater Stadelhofen (the former Zürcher Puppentheater): puppet and object theatre.
+    out = []
+    for art in soup("https://theater-stadelhofen.ch/auf-der-buehne/").select("article.tease-indy-performance"):
+        a = art.select_one("a[href*='/veranstaltungen/']")
+        m = re.search(r"(\d{1,2})\.(\d{1,2})\.", text(art.select_one(".tease-performance__start__date")))
+        if not (a and m):
+            continue
+        d, mo = int(m[1]), int(m[2])
+        t = clock(text(art.select_one(".tease-performance__start__time")))
+        ticket = text(art.select_one(".tease-performance__ticket"))   # "Für Schulen" marks school-only shows
+        sub = " · ".join(filter(None, (text(art.select_one(".tease-performance__title__compagnie")),
+                                       text(art.select_one(".tease-performance__infos__from_age")),
+                                       ticket if "schul" in ticket.lower() else "")))
+        out.append(ev("stadelhofen", "Theater Stadelhofen", text(art.select_one("h3")),
+                      at(infer_year(d, mo), mo, d, t), a["href"], subtitle=sub,
+                      category="Puppet / Object theatre", allday=not t))
+    return out
+
+
+def stok():
+    # The list (WordPress "Modern Events Calendar") shows 12 events and loads the rest by a POST
+    # to admin-ajax.php with the list's settings; robots.txt allows admin-ajax.php.
+    url = "https://theaterstok.ch/programm/"
+    page = fetch(url)
+    atts = re.search(r'atts: *"([^"]*)"', page)
+    if not atts:
+        raise ValueError("list settings not found on the programme page")
+    q = {k: v for k, v in urllib.parse.parse_qsl(atts[1])
+         if v and ("[list]" in k or "sk-options" not in k) and "sf-options" not in k and "_edit" not in k}
+    q.update({"action": "mec_list_load_more", "mec_start_date": dt.date.today().isoformat(), "mec_offset": "0",
+              "current_month_divider": "0", "apply_sf_date": "0", "atts[sk-options][list][limit]": "300"})
+    data = json.loads(fetch("https://theaterstok.ch/wp-admin/admin-ajax.php", data=q))
+    out = []
+    for art in BeautifulSoup(data["html"], "html.parser").select("article.mec-event-article"):
+        a = art.select_one(".mec-event-title a[href]")
+        occ = re.search(r"occurrence=(\d{4})-(\d{2})-(\d{2})", a["href"]) if a else None
+        if not occ:
+            continue
+        t = clock(text(art.select_one(".mec-start-time")))
+        for x in art.select(".mec-labels-normal"):     # "Extern", "Kollektiv-Mitglied": who hosts it
+            x.extract()
+        out.append(ev("stok", "Theater Stok", text(a), at(*map(int, occ.groups()), t), a["href"],
+                      subtitle=text(art.select_one(".mec-event-description"))[:200],
+                      category="Stage", allday=not t))
+    return out
+
+
+def purpur():
+    # Children's theatre; one block per production with its dates ("Sa, 14. November 2026 15:00").
+    url = "https://theater-purpur.ch/theater"
+    months = {m: i for i, m in enumerate("januar februar märz april mai juni juli august september oktober "
+                                          "november dezember".split(), 1)}
+    out = []
+    for h in soup(url).select("h3.media-heading"):
+        row = h.find_parent(class_="row")
+        dates = row.find_next_sibling(class_="row") if row else None
+        if not dates:
+            continue
+        age = text(dates.select_one(".alterButton"))
+        for sp in dates.select(".daten span"):
+            m = re.search(r"(\d{1,2})\.\s*(\w+)\s+(\d{4})\s*(.*)", text(sp))
+            if not (m and m[2].lower() in months):
+                continue
+            t = clock(m[4])
+            out.append(ev("purpur", "Theater Purpur", text(h), at(int(m[3]), months[m[2].lower()], int(m[1]), t),
+                          url, subtitle=(f"ab {age.rstrip('+')} Jahren" if age.rstrip("+").isdigit() else
+                                         "für alle" if age else ""),
+                          category="Children's theatre", allday=not t))
+    return out
+
+
+def tanzhaus():
+    # JSON feed behind the site's calendar (/wp-json/glunz/v1/event-dates/month); it also lists
+    # trainings, courses and workshops, which are left out here.
+    out, seen = [], set()
+    first = dt.date.today().replace(day=1)
+    for i in range(CFG["general"]["days_ahead"] // 28 + 1):
+        y, mo = first.year + (first.month - 1 + i) // 12, (first.month - 1 + i) % 12 + 1
+        if dt.date(y, mo, 1) > horizon().date():
+            break
+        data = json.loads(fetch(f"https://www.tanzhaus-zuerich.ch/wp-json/glunz/v1/event-dates/month"
+                                f"?year={y}&month={mo}&lang=de"))
+        for e in data.get("dates", []) if isinstance(data, dict) else data:
+            kinds = set(filter(None, (e.get("event_types") or "").split("|")))
+            if e["id"] in seen or not kinds & {"veranstaltungen", "zugaben"} or e.get("is_cancelled") == "1":
+                continue
+            seen.add(e["id"])
+            start = dt.datetime.fromisoformat(e["date_start"]).replace(tzinfo=TZ)
+            artists = ", ".join(filter(None, (e.get("artist_names") or "").split("|")))
+            formats = ", ".join(f.replace("-", " ").title() for f in filter(None, (e.get("event_formats") or "").split("|")))
+            out.append(ev("tanzhaus", "Tanzhaus Zürich", html.unescape(e["post_title"]), start, e["permalink"],
+                          subtitle=artists, category=formats or "Dance"))
+    return out
+
+
+def sogar():
+    base = "https://www.sogar.ch"
+    months = {m: i for i, m in enumerate("januar februar märz april mai juni juli august september oktober "
+                                          "november dezember".split(), 1)}
+    out, year = [], None
+    for node in soup(base + "/programm/").select("div.pro-month, article.event-article"):
+        if "pro-month" in node.get("class", []):
+            m = re.search(r"(\d{4})", text(node))
+            year = int(m[1]) if m else None
+            continue
+        date = node.select_one(".pro-event-date")
+        a = node.select_one(".pro-event-title")
+        m = re.match(r"(\d{1,2})\.(\d{1,2})", text(date))
+        if not (year and m and a):
+            continue
+        t = clock(text(date.select_one(".br")))
+        detail = [p for p in (text(p) for p in node.select(".pro-event-detail p p")) if p]
+        link = a.find_parent("a", href=True)
+        out.append(ev("sogar", "sogar theater", text(a), at(year, int(m[2]), int(m[1]), t),
+                      urllib.parse.urljoin(base, link["href"]) if link else base + "/programm/",
+                      subtitle=" · ".join(detail[:-1] + [x for x in [text(node.select_one(".pro-event-status"))]
+                                                         if x.lower() != "tickets"]),
+                      category=(detail[-1].title() if detail else "Theatre"), allday=not t))
+    return out
+
+
+def keller62():
+    base = "https://keller62.ch"
+    out = []
+    for art in soup(base + "/programm").select("article.program"):
+        title = text(art.select_one("[itemprop=name]"))
+        links = [a["href"] for a in art.select(".desktop-newsDescr a.res[href]")]
+        starts = [m["content"] for m in art.select("meta[itemprop=startDate]")]
+        for i, s in enumerate(starts):
+            url = base + links[i] if len(links) == len(starts) else base + "/programm"
+            out.append(ev("keller62", "Keller62", title, dt.datetime.fromisoformat(s).astimezone(TZ), url,
+                          subtitle=" · ".join(filter(None, (text(art.select_one("h4[itemprop=performer]")),
+                                                            text(art.select_one(".zh-prem"))))),
+                          category="Theatre / Cabaret"))
+    return out
+
+
+def theater11():
+    # Programme of Theater 11 on musical.ch. Multi-day runs ("24. - 29.11.2026") have no per-show
+    # times there; they are listed like exhibitions, from the first to the last day.
+    base = "https://www.musical.ch"
+    out = []
+    for it in soup(base + "/theater11zuerich").select("div.more-events-item"):
+        a = it.find("a", href=True)
+        title = text(it.find("h5"))
+        for x in it.select(".title"):
+            x.extract()
+        when = text(it)
+        url = urllib.parse.urljoin(base + "/", a["href"]) if a else base + "/theater11zuerich"
+        if "utm_" in url or "affiliate=" in url:
+            url = url.split("?")[0]
+        rng = re.match(r"(\d{1,2})\.(?:(\d{1,2})\.(\d{2,4})?)?\s*-\s*(\d{1,2})\.(\d{1,2})\.(\d{2,4})", when)
+        one = re.match(r"(\d{1,2})\.(\d{1,2})\.(\d{4})\s*(?:\|\s*(.*))?", when)
+        if rng:
+            y2 = int(rng[6]) % 100 + 2000
+            mo1 = int(rng[2] or rng[5])
+            y1 = int(rng[3]) % 100 + 2000 if rng[3] else (y2 if mo1 <= int(rng[5]) else y2 - 1)
+            start, end = local(y1, mo1, int(rng[1])), local(y2, int(rng[5]), int(rng[4]), 23, 59)
+            out.append(ev("theater11", "Theater 11", title, start, url, subtitle="Several shows",
+                          category="Musical / Show", allday=True, end=end))
+        elif one:
+            t = clock(one[4] or "")
+            out.append(ev("theater11", "Theater 11", title, at(int(one[3]), int(one[2]), int(one[1]), t), url,
+                          category="Musical / Show", allday=not t))
+    return out
+
+
+def theater_winterthur():
+    # The agenda is loaded month by month with a POST to /neueartikelladen (allowed by robots.txt).
+    page = soup("https://www.theaterwinterthur.ch/spielplan-agenda")
+    out = []
+    for m in dict.fromkeys(x["data-month"] for x in page.select("[data-month]")):
+        y, mo = map(int, m.split("-"))
+        if dt.date(y, mo, 1) > horizon().date():
+            break
+        s = soup("https://www.theaterwinterthur.ch/neueartikelladen",
+                 data={"action": "show_list", "tab": "datum", "abonnementId": "0", "brasserie": "0", "month": m})
+        for it in s.select("div.calendar-item"):
+            f = {i["name"]: i.get("value", "") for i in it.select("form input[name]")}
+            a = it.select_one(".calendar-headline h2 a[href]")
+            if not (a and f.get("datumvon")):
+                continue
+            y2, mo2, d2 = map(int, f["datumvon"].split("-"))
+            t = clock(f.get("zeitvon", ""))
+            cats = [text(li) for li in it.select(".nav-tertiary li")]
+            ort = f.get("ort", "")
+            out.append(ev("theater_winterthur", "Theater Winterthur", text(a), at(y2, mo2, d2, t), a["href"],
+                          subtitle=" · ".join(filter(None, (text(it.select_one("p.untertitel")),
+                                                            "" if ort == "Theater Winterthur" else ort))),
+                          category=" · ".join(cats[:1]) or "Theatre", allday=not t))
+    return out
+
+
+def casinotheater():
+    out = []
+    for it in soup("https://www.casinotheater.ch/spielplan/").select("div.spielplan__item[data-year]"):
+        a = it.select_one("a.performance-link[href]") or it
+        t = clock(text(it.select_one(".spielplan-details__info__date")).split(".")[-1])
+        url = (a.get("href") or it.get("data-performance-link") or "https://www.casinotheater.ch/spielplan/")
+        out.append(ev("casinotheater", "Casinotheater Winterthur", text(it.select_one("h1")),
+                      at(int(it["data-year"]), int(it["data-month"]), int(it["data-day"]), t),
+                      url.split("?backID=")[0] + f"#performance-{it.get('id', '').split('-')[-1]}",
+                      subtitle=text(it.select_one(".spielplan-details__content__description")),
+                      category=re.sub(r"[\s\d]+$", "", (it.get("data-cat") or "comedy").replace("-", " ")).title()
+                      .replace("Komoedie", "Komödie"), allday=not t))
+    return out
+
+
+def theater_am_gleis():
+    out = []
+    for art in soup("https://theater-am-gleis.ch/spielplan").select("article.tease-indy_event"):
+        a = art.select_one(".indy-event__title a[href]")
+        m = re.search(r"(\d{1,2})\.(\d{1,2})\.", text(art.select_one(".indy-event__datetime .date")))
+        if not (a and m):
+            continue
+        d, mo = int(m[1]), int(m[2])
+        t = clock(text(art.select_one(".indy-event__datetime .time")))
+        out.append(ev("theater_am_gleis", "Theater am Gleis Winterthur", text(a.find("h2") or a),
+                      at(infer_year(d, mo), mo, d, t), a["href"],
+                      subtitle=text(art.select_one(".indy-event__troupe")),
+                      category=text(art.select_one(".indy-event-badge")) or "Theatre", allday=not t))
+    return out
+
+
+def kellertheater_winterthur():
+    out = []
+    for art in soup("https://keller.theater/events/").select("article.tease-indy-event"):
+        a = art.select_one("h2 a[href]")
+        m = re.search(r"(\d{1,2})\.(\d{1,2})\.", text(art.select_one(".event-date")))
+        if not (a and m):          # e.g. the weekly tango evening has no date
+            continue
+        d, mo = int(m[1]), int(m[2])
+        meta = art.select_one(".event-meta")
+        for x in meta.select(".ticketlink"):
+            x.extract()
+        lines = [x.strip() for x in meta.get_text("\n").split("\n") if x.strip()]
+        t = next((clock(x) for x in lines if re.fullmatch(r"\d{1,2}[:.]\d{2} Uhr", x)), None)
+        sub = [x for x in lines if not re.search(r"\d{1,2}[:.]\d{2}", x)]
+        out.append(ev("kellertheater_winterthur", "Kellertheater Winterthur", text(a),
+                      at(infer_year(d, mo), mo, d, t), a["href"], subtitle=" · ".join(sub)[:200],
+                      category=text(art.select_one(".labels-wrapper")).title() or "Theatre", allday=not t))
+    return out
+
+
+def tkz():
+    # Theater Kanton Zürich (based in Winterthur) tours the canton; the place goes into the subtitle.
+    base = "https://www.tkz.ch"
+    months = {m: i for i, m in enumerate("januar februar märz april mai juni juli august september oktober "
+                                          "november dezember".split(), 1)}
+    out = []
+    for it in soup(base + "/spielplan/").select("div.ticket-item"):
+        m = re.search(r"(\d{1,2})\.\s*(\w+)\s+(\d{4})(?:,\s*(\d{1,2})[.:](\d{2}))?",
+                      text(it.select_one(".date-info")))
+        a = it.select_one("a[href^='/spielplan/']")
+        if not (m and m[2].lower() in months):
+            continue
+        t = (int(m[4]), int(m[5])) if m[4] else None
+        place = text(it.select_one(".infos-2 h3"))
+        town = re.sub(r"^.*\d{4}\s+", "", text(it.select_one(".infos-2 .address")))
+        out.append(ev("tkz", "Theater Kanton Zürich", text(it.select_one(".infos-1 h3")),
+                      at(int(m[3]), months[m[2].lower()], int(m[1]), t),
+                      urllib.parse.urljoin(base, a["href"] if a else "/spielplan/") + f"#{it.get('id', '')}",
+                      subtitle=" · ".join(filter(None, (text(it.select_one(".infos-1 .subtitle")),
+                                                        text(it.select_one(".infos-1 .premiere-info")),
+                                                        place if place == town else ", ".join(filter(None, (place, town)))))),
+                      category="Theatre", allday=not t))
+    return out
+
+
+def kurtheater():
+    base = "https://www.kurtheater.ch"
+    out = []
+    for it in soup(base + "/spielplan/").select("div.bm-item[data-href]"):
+        m = re.search(r"(\d{2})\.(\d{2})\.(\d{2}),?\s*(.*)", text(it.select_one(".bm-date-row p")))
+        if not m:
+            continue
+        t = clock(m[4])
+        ps = [text(p) for p in it.select(".bm-metadata > p")]
+        out.append(ev("kurtheater", "Kurtheater Baden", text(it.find("h2")),
+                      at(2000 + int(m[3]), int(m[2]), int(m[1]), t), urllib.parse.urljoin(base, it["data-href"]),
+                      subtitle=" · ".join(ps[1:] or ps)[:200], category="Stage", allday=not t))
+    return out
+
+
+def thik():
+    base = "https://www.thik.ch"
+    months = {m: i for i, m in enumerate("jan feb mär apr mai jun jul aug sep okt nov dez".split(), 1)}
+    out = []
+    for it in soup(base + "/programm").select("div.event-item.hasDate"):
+        a = it.select_one("h2 a[href]")
+        if not a:
+            continue
+        kind = [c for c in it["class"] if c not in ("alle", "hasDate", "event-item") and c.isalpha()]
+        parts = [text(p) for p in it.select(".event-participant")]
+        for d in it.select(".event-date"):
+            m = re.match(r"(\d{1,2})\s+(\w{3})", text(d.select_one(".event-day")))
+            if not (m and m[2].lower() in months):
+                continue
+            day, mo = int(m[1]), months[m[2].lower()]
+            t = clock(text(d.select_one(".event-hour")))
+            out.append(ev("thik", "ThiK Theater im Kornhaus Baden", text(a), at(infer_year(day, mo), mo, day, t),
+                          urllib.parse.urljoin(base, a["href"]), subtitle=" · ".join(parts)[:200],
+                          category="Für Schulen" if "Schulen" in kind else (", ".join(kind) or "Theatre"),
+                          allday=not t))
+    return out
+
+
 PARSERS = {f.__name__: f for f in (opernhaus, tonhalle, schauspielhaus, moods, kaufleuten, bogenf,
                                    rotefabrik, gessnerallee, hallenstadion, museum_gestaltung, rigiblick,
-                                   kunsthaus, eth, uzh)}
+                                   kunsthaus, eth, uzh,
+                                   neumarkt, hechtplatz, bernhard, winkelwiese, millers, stadelhofen, stok,
+                                   purpur, tanzhaus, sogar, keller62, theater11,
+                                   theater_winterthur, casinotheater, theater_am_gleis, kellertheater_winterthur,
+                                   tkz, kurtheater, thik)}
 
 
 # ---------------------------------------------------------------- storage
