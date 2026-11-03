@@ -51,6 +51,12 @@
   .b-new { background: var(--new-soft); color: var(--new); }
   .b-star { background: var(--accent-soft); color: var(--accent); }
   footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 30px; }
+  .topics { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; }
+  .topics .lbl { color: var(--accent); font-weight: 600; margin-right: 2px; }
+  .chip.topic { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .chip.topic span { opacity: .6; margin-left: 4px; }
+  #topicIn { border: 1px dashed var(--line); background: transparent; color: var(--ink); border-radius: 999px;
+             padding: 3px 10px; font: inherit; font-size: 12.5px; width: 170px; }
   .err { color: var(--accent); }
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 </style>
@@ -66,6 +72,8 @@
     <label class="tog"><input type="checkbox" id="onlyStar"> Starred only</label>
   </div>
   <div class="chips" id="venues"></div>
+  <div class="topics"><span class="lbl">★ Topics</span><span class="chips" id="topics" style="margin:0"></span>
+    <input id="topicIn" placeholder="add a topic + Enter" aria-label="Add a star topic" enterkeyhint="done"></div>
 </div></header>
 <main class="wrap" id="list"></main>
 <div class="wrap" style="padding:0 16px 30px"><footer id="status"></footer></div>
@@ -91,6 +99,30 @@ $("venues").addEventListener("click", ev => {
 });
 ["q", "onlyNew", "onlyStar"].forEach(id => $(id).addEventListener("input", draw));
 
+// Star topics typed on the page: saved in this browser only, per page, on top of config.toml's words.
+const TOPICS_KEY = "starTopics:__PAGEID__";
+let topics = [];
+try { topics = JSON.parse(localStorage.getItem(TOPICS_KEY) || "[]"); } catch {}
+let topicRes = [];
+function setTopics(list) {
+  topics = [...new Set(list.map(t => t.trim()).filter(Boolean))];
+  try { localStorage.setItem(TOPICS_KEY, JSON.stringify(topics)); } catch {}
+  // whole-word, case-insensitive, Unicode-aware (so "oper" does not match "Operationalizing")
+  topicRes = topics.map(t => new RegExp(`(?<![\\p{L}\\p{N}])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "iu"));
+  $("topics").innerHTML = topics.map((t, i) =>
+    `<button class="chip topic" data-i="${i}" title="Remove">${esc(t)}<span>×</span></button>`).join("");
+  draw();
+}
+const starred = e => e.highlight ||
+  (topicRes.length && topicRes.some(r => r.test([e.title, e.subtitle, e.category, e.venue].join(" "))));
+$("topicIn").addEventListener("keydown", ev => {
+  if (ev.key !== "Enter" || !ev.target.value.trim()) return;
+  setTopics([...topics, ...ev.target.value.split(",")]); ev.target.value = "";
+});
+$("topics").addEventListener("click", ev => {
+  const b = ev.target.closest(".topic"); if (b) setTopics(topics.filter((_, i) => i != b.dataset.i));
+});
+
 const dayFmt = new Intl.DateTimeFormat("en-GB", {weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Zurich"});
 const timeFmt = new Intl.DateTimeFormat("de-CH", {hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich"});
 const untilFmt = new Intl.DateTimeFormat("de-CH", {day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Zurich"});
@@ -100,7 +132,7 @@ function draw() {
   const list = EVENTS.filter(e =>
     !hidden.has(venueKey(e)) &&
     (!$("onlyNew").checked || e.new) &&
-    (!$("onlyStar").checked || e.highlight) &&
+    (!$("onlyStar").checked || starred(e)) &&
     (!q || [e.title, e.subtitle, e.venue, e.category].join(" ").toLowerCase().includes(q)));
   $("count").textContent = `${list.length} of ${EVENTS.length} events`;
   // long-running items (exhibitions) that have already opened go into "On now"
@@ -118,17 +150,17 @@ function draw() {
 }
 
 function card(e, when) {
-  return `<article class="ev${e.highlight ? " star" : ""}">
+  return `<article class="ev${starred(e) ? " star" : ""}">
       <div class="time${e.end ? " small" : ""}">${esc(when)}</div>
       <div>
         <a class="title" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>
         ${e.subtitle ? `<div class="sub">${esc(e.subtitle)}</div>` : ""}
         <div class="tags"><span>${esc(e.venue)}</span><span>· ${esc(e.category)}</span>
           ${e.new ? `<span class="badge b-new">NEW</span>` : ""}
-          ${e.highlight ? `<span class="badge b-star">★</span>` : ""}</div>
+          ${starred(e) ? `<span class="badge b-star">★</span>` : ""}</div>
       </div></article>`;
 }
-draw();
+setTopics(topics);   // builds the topic chips and draws the list
 
 $("status").innerHTML = "Sources in last scan: " + (STATUS.map(s =>
   s.ok ? `${esc(s.source)} (${s.count})` : `<span class="err" title="${esc(s.message)}">${esc(s.source)} ✗ failed</span>`
