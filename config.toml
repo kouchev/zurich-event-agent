@@ -38,11 +38,18 @@ uzh = true
 [[pages]]
 id = "culture"
 title = "Culture"
-description = "Music, theatre, opera & exhibitions"
-sources = ["opernhaus", "tonhalle", "schauspielhaus", "moods", "kaufleuten", "bogenf", "rotefabrik",
-           "gessnerallee", "hallenstadion", "museum_gestaltung", "rigiblick", "kunsthaus"]
+description = "Music, opera, ballet & exhibitions"
+sources = ["opernhaus", "tonhalle", "moods", "kaufleuten", "bogenf", "rotefabrik",
+           "hallenstadion", "museum_gestaltung", "kunsthaus"]
 highlight = ["jazz", "quartet", "quartett", "trio", "piano", "klavier", "orchester",
              "oper", "opera", "ballett", "ballet", "premiere", "ausstellung", "exhibition"]
+
+[[pages]]
+id = "theater"
+title = "Theater"
+description = "Theatre, cabaret & dance in Zürich, Winterthur and Baden"
+sources = ["schauspielhaus", "rigiblick", "gessnerallee"]
+highlight = ["premiere", "uraufführung", "komödie", "tanz", "dance"]
 
 [[pages]]
 id = "education"
