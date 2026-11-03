@@ -20,7 +20,8 @@ the last 14 scans and any error; the home page links to it with a health summary
 | `agent.py` | one parser per venue + SQLite storage + page rendering |
 | `template.html`, `home.html`, `diagnostic.html` | page layouts |
 | `run.sh` | daily scan (logs to `cron.log`) |
-| `serve.sh` | serves `site/` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
+| `serve.sh` | runs `server.py` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
+| `server.py` | serves `site/` plus the synced selection (`/api/picks`) and the "My picks" feed (`/my.ics`) |
 | `tunnel.sh` | runs the Cloudflare Tunnel that publishes the site at https://events.3dation.com |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
 
@@ -70,6 +71,17 @@ Schedule with `crontab -e`:
 @reboot /path/to/serve.sh
 @reboot /path/to/tunnel.sh
 ```
+
+## My picks calendar
+
+On the self-hosted site, `server.py` keeps the events selected with + on the server, in
+`picks.json`, and serves them as a calendar feed at `/my.ics?key=SECRET`. Subscribe to that URL
+in a calendar app and it contains exactly the events you picked. `SECRET` is created on the
+first start in `picks.key`. Open the site once per browser or device as
+`https://events.3dation.com/?key=SECRET`. The page stores the key, removes it from the address
+bar, syncs the selection, and shows the feed link in the footer. Without the key the selection
+stays in the browser, as on GitHub Pages, which has no server. To lock out a leaked key, delete
+`picks.key` and restart `serve.sh`; a new one is created.
 
 ## Domain (Cloudflare Tunnel)
 

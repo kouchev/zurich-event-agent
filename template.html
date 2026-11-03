@@ -107,6 +107,11 @@
     <a id="feedSub" href="__FEED__">Subscribe</a> ·
     <button id="feedCopy" title="Paste into Google Calendar: Other calendars → From URL">Copy link</button>.
     Uses the built-in star words only, not topics added in this browser.</div>
+  <div class="feed" id="myFeed" hidden>📅 <b>My picks</b> calendar: the events you selected with + on any page,
+    kept in sync:
+    <a id="mySub" href="#">Subscribe</a> ·
+    <button id="myCopy" title="Paste into Google Calendar: Other calendars → From URL">Copy link</button>.
+    <span id="syncState"></span></div>
   <div id="status"></div></footer></div>
 <div id="selbar" hidden><div class="wrap">
   <strong id="selCount"></strong>
@@ -218,12 +223,45 @@ function card(e, when) {
       <button class="pick" data-id="${esc(e.id)}" aria-pressed="${on}" title="Select for calendar"
               aria-label="Select ${esc(e.title)}">${on ? "✓" : "+"}</button></article>`;
 }
-// ---- Selection for calendar export: saved in this browser only, per page.
+// ---- Selection for calendar export. Saved in this browser, per page; with a sync key
+// (open the site once as …/?key=SECRET) it is also saved on the server (server.py), shared by
+// all your devices, and published as the private "My picks" calendar feed /my.ics?key=SECRET.
 const SEL_KEY = "selected:__PAGEID__";
 const byId = new Map(EVENTS.map(e => [e.id, e]));
 let picked = new Set();
 try { picked = new Set(JSON.parse(localStorage.getItem(SEL_KEY) || "[]").filter(id => byId.has(id))); } catch {}
-const savePicked = () => { try { localStorage.setItem(SEL_KEY, JSON.stringify([...picked])); } catch {} };
+const saveLocal = () => { try { localStorage.setItem(SEL_KEY, JSON.stringify([...picked])); } catch {} };
+
+let syncKey = "";
+try {
+  const u = new URL(location.href), k = u.searchParams.get("key");
+  if (k) { localStorage.setItem("syncKey", k); u.searchParams.delete("key"); history.replaceState(null, "", u); }
+  syncKey = localStorage.getItem("syncKey") || "";
+} catch {}
+const api = (body) => fetch(`/api/picks?key=${encodeURIComponent(syncKey)}`, body &&
+  {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+const syncNote = (t) => { $("syncState").textContent = t; };
+function push(body) {
+  if (!syncKey) return;
+  api(body).then(() => syncNote("Saved ✓")).catch(() => syncNote("⚠ not saved on server — will retry on next change"));
+}
+const savePicked = (change) => { saveLocal(); if (change) push(change); };
+
+if (syncKey && location.protocol.startsWith("http")) {
+  const myUrl = new URL(`/my.ics?key=${encodeURIComponent(syncKey)}`, location.href).href;
+  $("mySub").href = myUrl.replace(/^https?:/, "webcal:");
+  $("myCopy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(myUrl); $("myCopy").textContent = "Copied ✓"; }
+    catch { prompt("My picks calendar address:", myUrl); }
+  });
+  // merge: picks made in this browser go up, picks from other devices come down
+  api({add: [...picked]}).then(({ids}) => {
+    picked = new Set(ids.filter(id => byId.has(id))); saveLocal(); draw(); updateBar();
+    $("myFeed").hidden = false; syncNote("In sync ✓");
+  }).catch(err => { $("myFeed").hidden = false;
+    syncNote(String(err).includes("403") ? "⚠ sync key not accepted" : "⚠ server not reachable — selection kept in this browser"); });
+}
 function updateBar() {
   $("selbar").hidden = !picked.size;
   $("selCount").textContent = `${picked.size} selected`;
@@ -233,14 +271,16 @@ $("list").addEventListener("click", ev => {
   const one = ev.target.closest(".cal1");
   if (one) return downloadIcs([byId.get(one.dataset.id)], "event.ics");
   const b = ev.target.closest(".pick"); if (!b) return;
-  const id = b.dataset.id; picked.has(id) ? picked.delete(id) : picked.add(id); savePicked();
+  const id = b.dataset.id, on = !picked.has(id);
+  on ? picked.add(id) : picked.delete(id); savePicked(on ? {add: [id]} : {remove: [id]});
   if ($("onlyPicked").checked) return draw();
   b.setAttribute("aria-pressed", picked.has(id)); b.textContent = picked.has(id) ? "✓" : "+";
   b.closest(".ev").classList.toggle("picked", picked.has(id));
   updateBar();
 });
 $("onlyPicked").addEventListener("input", draw);
-$("selClear").addEventListener("click", () => { picked.clear(); savePicked(); draw(); });
+$("selClear").addEventListener("click", () => {
+  const gone = [...picked]; picked.clear(); savePicked({remove: gone}); draw(); });
 $("selIcs").addEventListener("click", () =>
   downloadIcs(EVENTS.filter(e => picked.has(e.id)), "zurich-events.ics"));
 

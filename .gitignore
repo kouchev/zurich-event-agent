@@ -4,3 +4,6 @@ events.db
 *.log
 site/
 *-journal
+picks.json
+picks.key
+*.tmp

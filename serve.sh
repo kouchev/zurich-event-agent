@@ -1,4 +1,4 @@
 #!/bin/sh
-# Serve the events page on localhost only. Run with BIND=0.0.0.0 to expose it on the network.
-BIND=${BIND:-127.0.0.1}; PORT=${PORT:-8765}
-cd "$(dirname "$0")/site" && exec python3 -m http.server "$PORT" --bind "$BIND" >> ../server.log 2>&1
+# Serve the site (and the "my picks" calendar API, see server.py) on localhost only.
+# Run with BIND=0.0.0.0 to expose it on the network.
+cd "$(dirname "$0")" && exec .venv/bin/python server.py >> server.log 2>&1
