@@ -28,6 +28,10 @@
   .meta a, .meta button { color: var(--ink); }
   .meta button { border: 0; background: none; font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
   main { padding: 16px; }
+  .who { padding: 10px 16px 0; font-size: 13.5px; color: var(--muted); }
+  .who b { color: var(--ink); }
+  .who a, .who button { color: var(--ink); }
+  .who button { border: 0; background: none; font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
   .mail { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; font-size: 13.5px; }
   .mail input { flex: 1 1 240px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
                 background: var(--card); color: var(--ink); font: inherit; }
@@ -73,7 +77,7 @@
 <header><div class="wrap">
   <h1>Zurich Events</h1>
   <nav class="tabs" aria-label="Pages">__NAV__</nav>
-  <div class="meta">Events you selected with + on any page · last scan __UPDATED__ · <span id="count"></span>
+  <div class="meta">Your events, selected with + on any page · last scan __UPDATED__ · <span id="count"></span>
     <span id="feed" hidden> · 📅 <a id="sub" href="#">Subscribe in your calendar app</a> ·
       <button id="copy">Copy calendar link</button></span></div>
   <form id="mail" class="mail" hidden>
@@ -82,6 +86,8 @@
     <button class="btn" id="mailSend">Send</button> <span id="mailState" class="meta"></span>
   </form>
 </div></header>
+<div class="wrap who" id="who" hidden>Signed in as <b id="whoName"></b> ·
+  <button id="switchUser">Switch user</button><span id="adminLink" hidden> · <a href="admin.html">⚙ Admin: manage users</a></span></div>
 <main class="wrap" id="main"><div class="note">Loading…</div></main>
 <script>
 const $ = id => document.getElementById(id);
@@ -93,10 +99,25 @@ const timeFmt = new Intl.DateTimeFormat("de-CH", {hour: "2-digit", minute: "2-di
 const listFmt = new Intl.DateTimeFormat("en-GB", {weekday: "short", day: "numeric", month: "short", timeZone: TZ});
 const monthFmt = new Intl.DateTimeFormat("en-GB", {month: "long", year: "numeric"});
 
+// Store a personal key. Switching from one person's key to another's drops the previous person's
+// selections kept in this browser, so they are not uploaded into the new person's picks.
+function storeKey(k) {
+  let switched = false;
+  try {
+    const old = localStorage.getItem("syncKey") || "";
+    if (old && old !== k) {
+      switched = true;
+      for (const n of Object.keys(localStorage))
+        if (n.startsWith("selected:") || n === "picksSynced") localStorage.removeItem(n);
+    }
+    localStorage.setItem("syncKey", k);
+  } catch {}
+  return switched;
+}
 let key = "";
 try {
   const u = new URL(location.href), k = u.searchParams.get("key");
-  if (k) { localStorage.setItem("syncKey", k); u.searchParams.delete("key"); history.replaceState(null, "", u); }
+  if (k) { storeKey(k); u.searchParams.delete("key"); history.replaceState(null, "", u); }
   key = localStorage.getItem("syncKey") || "";
 } catch {}
 const api = body => fetch(`/api/picks?key=${encodeURIComponent(key)}`, body &&
@@ -120,6 +141,9 @@ function load() {
     };
     $("feed").hidden = false;
     $("mail").hidden = false;
+    $("who").hidden = false;
+    $("whoName").textContent = r.name;
+    $("adminLink").hidden = r.role !== "admin";
     // open on the month of the next upcoming pick (or this month)
     const next = events.find(e => new Date(e.end || e.start) >= new Date());
     if (next) { shown = new Date(dayKey(new Date(next.start)) + "T12:00"); shown.setDate(1); }
@@ -128,6 +152,17 @@ function load() {
     ? askKey("That key was not accepted. Check it and try again.")
     : note("<b>The server could not be reached.</b> This tab only works on the self-hosted site (events.3dation.com)."));
 }
+
+$("switchUser").addEventListener("click", () => {
+  try {
+    for (const n of Object.keys(localStorage))
+      if (n === "syncKey" || n === "picksSynced" || n.startsWith("selected:")) localStorage.removeItem(n);
+  } catch {}
+  key = ""; events = [];
+  for (const id of ["who", "feed", "mail"]) $(id).hidden = true;
+  $("count").textContent = "";
+  askKey("Enter the key of the person who wants to use this browser.");
+});
 
 // No key (new browser, private window, cleared data) or a wrong one: ask for it once.
 function askKey(msg) {
@@ -141,8 +176,7 @@ function askKey(msg) {
   $("keyForm").onsubmit = ev => {
     ev.preventDefault();
     const k = $("keyIn").value.trim(); if (!k) return;
-    key = k;
-    try { localStorage.setItem("syncKey", k); } catch {}
+    key = k; storeKey(k);
     load();
   };
 }

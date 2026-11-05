@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Zurich Events · Admin</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
+    --accent: #b4321e; --accent-soft: #fbeae6; --ok: #1f6f43; --ok-soft: #e3f3e9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --card: #1e1e21; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+            --accent: #ff7a63; --accent-soft: #3a2420; --ok: #6fd39a; --ok-soft: #1b3326; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { border-bottom: 1px solid var(--line); padding: 14px 16px 10px; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px;
+            border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .meta { color: var(--muted); font-size: 13px; }
+  main { padding: 16px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  form.add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+                  color: var(--ink); font: inherit; }
+  input#name { flex: 1 1 200px; max-width: 300px; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px;
+         padding: 5px 11px; font: inherit; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 7px 14px; }
+  .btn.danger { color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .table { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+  .pill { border-radius: 4px; padding: 1px 7px; font-size: 12px; font-weight: 600; background: var(--line); color: var(--muted); }
+  .pill.admin { background: var(--accent-soft); color: var(--accent); }
+  .acts { display: flex; gap: 6px; }
+  .new { background: var(--ok-soft); border: 1px solid var(--ok); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+  .new code { word-break: break-all; white-space: normal; }
+  .msg { color: var(--accent); font-size: 13.5px; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 14px; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Zurich Events</h1>
+  <nav class="tabs" aria-label="Pages">__NAV__</nav>
+  <div class="meta">Admin · users, their keys and personal links</div>
+</div></header>
+<main class="wrap" id="main"><div class="card">Loading…</div></main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let key = "";
+try { key = localStorage.getItem("syncKey") || ""; } catch {}
+const link = k => new URL(`/my.html?key=${encodeURIComponent(k)}`, location.href).href;
+const api = body => fetch(`/api/users?key=${encodeURIComponent(key)}`, body &&
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+  .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.status); return d; });
+
+let users = [], fresh = null, msg = "";
+
+function draw() {
+  const rows = users.map(u => `<tr>
+      <td><b>${esc(u.name)}</b>${u.me ? " (you)" : ""}</td>
+      <td><span class="pill ${u.role === "admin" ? "admin" : ""}">${esc(u.role)}</span></td>
+      <td><code>${esc(u.key)}</code></td>
+      <td><button class="btn" data-copy="${esc(link(u.key))}">Copy link</button></td>
+      <td class="n">${u.picks}</td>
+      <td>${esc(u.created)}</td>
+      <td>${esc(u.last_seen || "never")}</td>
+      <td><div class="acts">
+        <button class="btn" data-act="rekey" data-id="${esc(u.id)}" title="Make a new key; the old one stops working">New key</button>
+        <button class="btn danger" data-act="delete" data-id="${esc(u.id)}" ${u.me ? "disabled" : ""}>Delete</button>
+      </div></td></tr>`).join("");
+  $("main").innerHTML = `
+    <div class="card"><h2>Add a user</h2>
+      <form class="add" id="add">
+        <input id="name" placeholder="Name, e.g. Anna" aria-label="Name" maxlength="40" required>
+        <select id="role" aria-label="Role"><option value="user">user</option><option value="admin">admin</option></select>
+        <button class="btn primary">Create key</button> <span class="msg">${esc(msg)}</span>
+      </form>
+      ${fresh ? `<div class="new">✓ <b>${esc(fresh.name)}</b> can now use the site. Send them this personal link
+        (opening it once connects their browser):<br><code>${esc(link(fresh.key))}</code>
+        <button class="btn" data-copy="${esc(link(fresh.key))}">Copy</button></div>` : ""}
+    </div>
+    <div class="table"><table>
+      <thead><tr><th>Name</th><th>Role</th><th>Key</th><th>Personal link</th><th>Picks</th><th>Created</th>
+        <th>Last used</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="note">Each user has their own picks, My picks calendar feed and email. <b>Admins</b> can open this page.
+      <b>New key</b> replaces a key at once: the old link and calendar subscription stop working, so send the
+      person their new link. <b>Delete</b> removes the user and their picks.</div>`;
+  $("add").onsubmit = ev => {
+    ev.preventDefault();
+    const name = $("name").value.trim();
+    api({action: "add", name, role: $("role").value}).then(d => {
+      users = d.users; fresh = users.find(u => u.name.toLowerCase() === name.toLowerCase()); msg = ""; draw();
+    }).catch(err => { msg = err.message; draw(); $("name").value = name; });
+  };
+}
+
+$("main").addEventListener("click", async ev => {
+  const c = ev.target.closest("[data-copy]");
+  if (c) {
+    try { await navigator.clipboard.writeText(c.dataset.copy); c.textContent = "Copied ✓"; }
+    catch { prompt("Personal link:", c.dataset.copy); }
+    return;
+  }
+  const b = ev.target.closest("[data-act]");
+  if (!b) return;
+  const u = users.find(x => x.id === b.dataset.id);
+  const q = b.dataset.act === "delete"
+    ? `Delete ${u.name} and their ${u.picks} picks? This cannot be undone.`
+    : `Make a new key for ${u.name}? Their current link and calendar subscription stop working.`;
+  if (!confirm(q)) return;
+  try {
+    const d = await api({action: b.dataset.act, id: u.id});
+    users = d.users; msg = "";
+    fresh = b.dataset.act === "rekey" ? users.find(x => x.id === u.id) : null;
+    if (fresh && fresh.me) {   // own key changed: keep this browser signed in
+      key = fresh.key; try { localStorage.setItem("syncKey", key); } catch {}
+    }
+    draw();
+  } catch (err) { msg = err.message; draw(); }
+});
+
+if (!key) {
+  $("main").innerHTML = `<div class="card">Not signed in. Open <a href="my.html">My picks</a> and enter an admin key.</div>`;
+} else {
+  api().then(d => { users = d.users; draw(); }).catch(err => {
+    $("main").innerHTML = `<div class="card">${String(err.message).includes("admin")
+      ? "This page is for admins only."
+      : "The key in this browser was not accepted. Open <a href=\"my.html\">My picks</a> to sign in again."}</div>`;
+  });
+}
+</script>
+</body>
+</html>

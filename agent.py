@@ -972,6 +972,8 @@ def render(con):
     # My picks: the events selected with + (loaded in the browser from server.py's /api/picks)
     write_atomic(out / "my.html", (ROOT / "picks.html").read_text()
                  .replace("__NAV__", nav_html(pages, files, "my")).replace("__UPDATED__", updated))
+    # Admin: user management, linked from My picks for admins (data from server.py's /api/users)
+    write_atomic(out / "admin.html", (ROOT / "admin.html").read_text().replace("__NAV__", nav_html(pages, files, "admin")))
 
 
 def nav_html(pages, files, current) -> str:

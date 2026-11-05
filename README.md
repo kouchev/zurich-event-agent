@@ -22,7 +22,7 @@ the last 14 scans and any error; the home page links to it with a health summary
 | `run.sh` | daily scan (logs to `cron.log`) |
 | `serve.sh` | runs `server.py` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
 | `mailer.py` | builds and sends the My picks email through Resend |
-| `server.py` | serves `site/` plus the synced selection (`/api/picks`) and the "My picks" feed (`/my.ics`) |
+| `server.py` | serves `site/` plus users, their synced picks (`/api/picks`), feeds (`/my.ics`), email and admin |
 | `tunnel.sh` | runs the Cloudflare Tunnel that publishes the site at https://events.3dation.com |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
 
@@ -73,16 +73,20 @@ Schedule with `crontab -e`:
 @reboot /path/to/tunnel.sh
 ```
 
-## My picks calendar
+## Users, My picks calendar and admin
 
-On the self-hosted site, `server.py` keeps the events selected with + on the server, in
-`picks.json`, and serves them as a calendar feed at `/my.ics?key=SECRET`. Subscribe to that URL
-in a calendar app and it contains exactly the events you picked. `SECRET` is created on the
-first start in `picks.key`. Open the site once per browser or device as
-`https://events.3dation.com/?key=SECRET`. The page stores the key, removes it from the address
-bar, syncs the selection, and shows the feed link in the footer. Without the key the selection
-stays in the browser, as on GitHub Pages, which has no server. To lock out a leaked key, delete
-`picks.key` and restart `serve.sh`; a new one is created.
+Several people can use the site, each with a personal key. `server.py` stores the users in
+`users.json` (name, role, key) and each user's picks, selected with + on the pages, in
+`picks/<id>.json`. Both are kept out of git. Each user gets a calendar feed of their picks at
+`/my.ics?key=KEY`. Opening `https://events.3dation.com/my.html?key=KEY` once connects a browser:
+the page stores the key, removes it from the address bar and syncs the selection. A browser
+without a key keeps its selection locally, as on GitHub Pages, which has no server.
+
+**Admin.** Admins see "⚙ Admin: manage users" on the My picks tab (`admin.html`). It lists all
+users with key, personal link, number of picks and last use, and can add a user (user or admin),
+make a new key (the old one stops working at once) or delete a user. On the first start the
+earlier single key (`picks.key`) and its picks became the admin user "Admin". Keys are removed
+from `server.log`.
 
 The **My picks** tab (`my.html`, from `picks.html`) shows the selection as a month calendar
 and an agenda list, with ✓ to remove an event. It loads the events from `/api/picks`, so it

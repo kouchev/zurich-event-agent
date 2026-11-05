@@ -8,3 +8,5 @@ picks.json
 picks.key
 *.tmp
 resend.key
+users.json
+picks/

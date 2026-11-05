@@ -235,10 +235,25 @@ let picked = new Set();
 try { picked = new Set(JSON.parse(localStorage.getItem(SEL_KEY) || "[]").filter(id => byId.has(id))); } catch {}
 const saveLocal = () => { try { localStorage.setItem(SEL_KEY, JSON.stringify([...picked])); } catch {} };
 
+// Store a personal key. Switching from one person's key to another's drops the previous person's
+// selections kept in this browser, so they are not uploaded into the new person's picks.
+function storeKey(k) {
+  let switched = false;
+  try {
+    const old = localStorage.getItem("syncKey") || "";
+    if (old && old !== k) {
+      switched = true;
+      for (const n of Object.keys(localStorage))
+        if (n.startsWith("selected:") || n === "picksSynced") localStorage.removeItem(n);
+    }
+    localStorage.setItem("syncKey", k);
+  } catch {}
+  return switched;
+}
 let syncKey = "";
 try {
   const u = new URL(location.href), k = u.searchParams.get("key");
-  if (k) { localStorage.setItem("syncKey", k); u.searchParams.delete("key"); history.replaceState(null, "", u); }
+  if (k) { if (storeKey(k)) picked.clear(); u.searchParams.delete("key"); history.replaceState(null, "", u); }
   syncKey = localStorage.getItem("syncKey") || "";
 } catch {}
 const api = (body) => fetch(`/api/picks?key=${encodeURIComponent(syncKey)}`, body &&
