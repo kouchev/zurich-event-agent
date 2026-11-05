@@ -99,6 +99,14 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):   # never write keys into server.log
         super().log_message(fmt, *(re.sub(r"key=[^&\s\"]*", "key=…", str(a)) for a in args))
 
+    def end_headers(self):
+        # pages change with every scan or update: browsers must check for a new version each time
+        path = urlsplit(self.path).path
+        if self.command in ("GET", "HEAD") and (path.endswith((".html", ".ics", "/")) or "." not in path):
+            if not any(h.startswith(b"Cache-Control") for h in getattr(self, "_headers_buffer", [])):
+                self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def user(self, query):
         """The user whose key is in the query, or None. Notes the day of last use."""
         given = query.get("key", [""])[0].encode()
