@@ -81,7 +81,9 @@ def send(to: list, events: list) -> str:
     req = urllib.request.Request(
         "https://api.resend.com/emails", method="POST",
         data=json.dumps({"from": cfg["from"], "to": to, "subject": subject, "html": body, "text": text,
-                         "attachments": [{"filename": "my-picks.ics",
+                         # a generic type, so mail apps offer a file instead of an
+                         # "Event Invitation" box showing only the first event
+                         "attachments": [{"filename": "my-picks.ics", "content_type": "application/octet-stream",
                                           "content": base64.b64encode(ics.encode()).decode()}]}).encode(),
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                  "User-Agent": "zurich-event-agent/0.1"})
