@@ -101,8 +101,7 @@ shown.setDate(1);
 function note(html) { $("main").innerHTML = `<div class="note">${html}</div>`; }
 
 function load() {
-  if (!key) return note(`<b>No sync key in this browser.</b> Open the link with your key once
-    (…/my.html?key=SECRET); the key is in <code>picks.key</code> on the server.`);
+  if (!key) return askKey("This browser is not connected yet.");
   api().then(r => {
     events = r.events.sort((a, b) => a.start.localeCompare(b.start));
     const feed = new URL(`/my.ics?key=${encodeURIComponent(key)}`, location.href).href;
@@ -116,9 +115,27 @@ function load() {
     const next = events.find(e => new Date(e.end || e.start) >= new Date());
     if (next) { shown = new Date(dayKey(new Date(next.start)) + "T12:00"); shown.setDate(1); }
     draw();
-  }).catch(err => note(String(err).includes("403")
-    ? "<b>The sync key in this browser was not accepted.</b> Open the site again with the current key link."
-    : "<b>The server could not be reached.</b> This tab only works on the self-hosted site (events.3dation.com)."));
+  }).catch(err => String(err).includes("403")
+    ? askKey("That key was not accepted. Check it and try again.")
+    : note("<b>The server could not be reached.</b> This tab only works on the self-hosted site (events.3dation.com)."));
+}
+
+// No key (new browser, private window, cleared data) or a wrong one: ask for it once.
+function askKey(msg) {
+  note(`<form id="keyForm"><b>${esc(msg)}</b> Enter your key to see your picks and sync the + selections.
+      The browser remembers it.<br>
+      <input id="keyIn" type="password" autocomplete="current-password" placeholder="key" aria-label="Key"
+             style="margin-top:10px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+                    background:var(--bg);color:var(--ink);font:inherit;width:min(320px,100%)">
+      <button class="btn" style="margin-top:10px">Connect</button></form>`);
+  $("keyIn").focus();
+  $("keyForm").onsubmit = ev => {
+    ev.preventDefault();
+    const k = $("keyIn").value.trim(); if (!k) return;
+    key = k;
+    try { localStorage.setItem("syncKey", k); } catch {}
+    load();
+  };
 }
 
 // days an event covers: one for concerts, every day up to the end date for exhibitions

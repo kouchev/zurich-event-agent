@@ -271,6 +271,11 @@ function updateBar() {
   $("selCount").textContent = `${picked.size} selected`;
   if (!picked.size && $("onlyPicked").checked) { $("onlyPicked").checked = false; draw(); }
 }
+if (!syncKey && location.protocol.startsWith("http") && !location.hostname.endsWith("github.io")) {
+  $("myFeed").hidden = false;
+  $("myFeed").innerHTML = `📅 <b>My picks</b>: <a href="my.html">connect this browser</a> to keep your + selections
+    on the server and get them as a calendar feed.`;
+}
 $("list").addEventListener("click", ev => {
   const one = ev.target.closest(".cal1");
   if (one) return downloadIcs([byId.get(one.dataset.id)], "event.ics");
