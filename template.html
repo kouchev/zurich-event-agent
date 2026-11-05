@@ -96,6 +96,7 @@
       <input type="time" id="fromTime" step="900" aria-label="Show events starting from"></label>
     <label class="tog"><input type="checkbox" id="onlyNew"> New only</label>
     <label class="tog"><input type="checkbox" id="onlyStar"> Starred only</label>
+    <label class="tog" title="Show only the events you selected with +"><input type="checkbox" id="onlyPicked"> 📅 In my calendar</label>
   </div>
   <div class="chips" id="venues"></div>
   <div class="topics"><span class="lbl">★ Topics</span><span class="chips" id="topics" style="margin:0"></span>
@@ -115,7 +116,6 @@
   <div id="status"></div></footer></div>
 <div id="selbar" hidden><div class="wrap">
   <strong id="selCount"></strong>
-  <label class="tog"><input type="checkbox" id="onlyPicked"> Show only selected</label>
   <button class="btn" id="selClear">Clear</button>
   <button class="btn primary" id="selIcs">Add to calendar (.ics)</button>
 </div></div>
@@ -185,13 +185,14 @@ const untilFmt = new Intl.DateTimeFormat("de-CH", {day: "2-digit", month: "2-dig
 function draw() {
   const q = $("q").value.trim().toLowerCase();
   const from = $("fromTime").value;   // "HH:MM" or ""
-  const list = $("onlyPicked").checked ? EVENTS.filter(e => picked.has(e.id)) : EVENTS.filter(e =>
+  const matchQ = e => !q || [e.title, e.subtitle, e.venue, e.category].join(" ").toLowerCase().includes(q);
+  const list = $("onlyPicked").checked ? EVENTS.filter(e => picked.has(e.id) && matchQ(e)) : EVENTS.filter(e =>
     !hidden.has(venueKey(e)) &&
     // events without a start time (all-day, exhibitions) stay visible
     (!from || e.allday || e.end || timeFmt.format(new Date(e.start)) >= from) &&
     (!$("onlyNew").checked || e.new) &&
     (!$("onlyStar").checked || starred(e)) &&
-    (!q || [e.title, e.subtitle, e.venue, e.category].join(" ").toLowerCase().includes(q)));
+    matchQ(e));
   $("count").textContent = `${list.length} of ${EVENTS.length} events`;
   // long-running items (exhibitions) that have already opened go into "On now"
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -204,7 +205,9 @@ function draw() {
     if (day !== lastDay) { html += `<h2>${esc(day)}</h2>`; lastDay = day; }
     html += card(e, e.allday ? "–" : timeFmt.format(d));
   }
-  $("list").innerHTML = html || `<div class="empty">No events match.</div>`;
+  $("list").innerHTML = html || `<div class="empty">${$("onlyPicked").checked && !picked.size
+    ? "Nothing from this page is in your calendar yet. Untick 📅 In my calendar and click + on an event."
+    : "No events match."}</div>`;
   updateBar();
 }
 
@@ -269,7 +272,6 @@ if (syncKey && location.protocol.startsWith("http")) {
 function updateBar() {
   $("selbar").hidden = !picked.size;
   $("selCount").textContent = `${picked.size} selected`;
-  if (!picked.size && $("onlyPicked").checked) { $("onlyPicked").checked = false; draw(); }
 }
 if (!syncKey && location.protocol.startsWith("http") && !location.hostname.endsWith("github.io")) {
   $("myFeed").hidden = false;
