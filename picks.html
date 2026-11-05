@@ -28,6 +28,9 @@
   .meta a, .meta button { color: var(--ink); }
   .meta button { border: 0; background: none; font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
   main { padding: 16px; }
+  .mail { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; font-size: 13.5px; }
+  .mail input { flex: 1 1 240px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
+                background: var(--card); color: var(--ink); font: inherit; }
   .monthbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .monthbar h2 { font-size: 17px; margin: 0 auto 0 0; }
   .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px;
@@ -73,6 +76,11 @@
   <div class="meta">Events you selected with + on any page · last scan __UPDATED__ · <span id="count"></span>
     <span id="feed" hidden> · 📅 <a id="sub" href="#">Subscribe in your calendar app</a> ·
       <button id="copy">Copy calendar link</button></span></div>
+  <form id="mail" class="mail" hidden>
+    <label for="mailTo">✉ Email the upcoming picks to</label>
+    <input id="mailTo" type="text" inputmode="email" autocomplete="email" placeholder="name@example.com, other@example.com">
+    <button class="btn" id="mailSend">Send</button> <span id="mailState" class="meta"></span>
+  </form>
 </div></header>
 <main class="wrap" id="main"><div class="note">Loading…</div></main>
 <script>
@@ -111,6 +119,7 @@ function load() {
       catch { prompt("Calendar address:", feed); }
     };
     $("feed").hidden = false;
+    $("mail").hidden = false;
     // open on the month of the next upcoming pick (or this month)
     const next = events.find(e => new Date(e.end || e.start) >= new Date());
     if (next) { shown = new Date(dayKey(new Date(next.start)) + "T12:00"); shown.setDate(1); }
@@ -202,6 +211,21 @@ $("main").addEventListener("click", ev => {
       } catch {}
     draw();
   }).catch(() => { rm.disabled = false; alert("Could not remove it — the server did not answer."); });
+});
+// ---- Email the picks (server.py → mailer.py → Resend). Last addresses are remembered in this browser.
+try { $("mailTo").value = localStorage.getItem("emailTo") || ""; } catch {}
+$("mail").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const to = $("mailTo").value.trim();
+  if (!to) return $("mailTo").focus();
+  $("mailSend").disabled = true; $("mailState").textContent = "Sending…";
+  fetch(`/api/email?key=${encodeURIComponent(key)}`, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify({to})})
+    .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.status); return d; })
+    .then(d => { $("mailState").textContent = `Sent to ${d.sent.join(", ")} ✓`;
+                 try { localStorage.setItem("emailTo", to); } catch {} })
+    .catch(err => { $("mailState").textContent = "⚠ " + err.message; })
+    .finally(() => { $("mailSend").disabled = false; });
 });
 load();
 </script>

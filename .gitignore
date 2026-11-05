@@ -7,3 +7,4 @@ site/
 picks.json
 picks.key
 *.tmp
+resend.key

@@ -21,6 +21,7 @@ the last 14 scans and any error; the home page links to it with a health summary
 | `template.html`, `home.html`, `diagnostic.html` | page layouts |
 | `run.sh` | daily scan (logs to `cron.log`) |
 | `serve.sh` | runs `server.py` on port 8765 (localhost by default, `BIND=0.0.0.0` for network) |
+| `mailer.py` | builds and sends the My picks email through Resend |
 | `server.py` | serves `site/` plus the synced selection (`/api/picks`) and the "My picks" feed (`/my.ics`) |
 | `tunnel.sh` | runs the Cloudflare Tunnel that publishes the site at https://events.3dation.com |
 | `events.db` | all events seen; `first_seen` drives the NEW badge |
@@ -86,6 +87,12 @@ stays in the browser, as on GitHub Pages, which has no server. To lock out a lea
 The **My picks** tab (`my.html`, from `picks.html`) shows the selection as a month calendar
 and an agenda list, with ✓ to remove an event. It loads the events from `/api/picks`, so it
 too works only on the self-hosted site.
+
+**Email.** On the My picks tab, ✉ sends the upcoming picks to 1–5 addresses: a list in the email
+plus `my-picks.ics` as an attachment. Outgoing SMTP is blocked on this host, so `mailer.py` sends
+through Resend's HTTPS API. Set-up: verify `3dation.com` at resend.com, create an API key with
+sending access, and save it in `resend.key` (not in git). The sender and a daily limit are set
+under `[email]` in `config.toml`.
 
 ## Domain (Cloudflare Tunnel)
 

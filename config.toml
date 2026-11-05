@@ -83,3 +83,9 @@ title = "Education"
 description = "Lectures, seminars & public events at ETH and UZH"
 sources = ["eth", "uzh"]
 highlight = []   # add your topics, e.g. ["circuit", "semiconductor", "machine learning"]
+
+# "Email" button on the My picks tab (server.py + mailer.py, sent through Resend; API key in resend.key).
+# The sender's domain must be verified at Resend; onboarding@resend.dev works only to your own address.
+[email]
+from = "Zurich Events <events@3dation.com>"
+max_per_day = 20   # protects against abuse if the site key leaks

@@ -4,6 +4,7 @@ Serves the static pages like `python -m http.server`, and adds:
   GET  /api/picks?key=K           -> {"ids": [...]}  the events selected with "+" on the pages
   POST /api/picks?key=K           body {"add": [...], "remove": [...]}
   GET  /my.ics?key=K              -> calendar feed of the selected events (subscribe to this URL)
+  POST /api/email?key=K           body {"to": "a@x.ch, b@y.ch"}  emails the upcoming picks (mailer.py)
 
 K is the secret in picks.key (created on first start). Without it nobody can read or change the
 selection. The selection is stored in picks.json; event details come from events.db.
@@ -14,6 +15,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import mailer
 from agent import ROOT, TZ, ics_calendar
 
 KEY_FILE, PICKS_FILE = ROOT / "picks.key", ROOT / "picks.json"
@@ -91,7 +93,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         url = urlsplit(self.path)
-        if url.path != "/api/picks":
+        if url.path not in ("/api/picks", "/api/email"):
             return self.send_json(404, {"error": "not found"})
         if not self.authorized(parse_qs(url.query)):
             return self.send_json(403, {"error": "wrong or missing key"})
@@ -100,6 +102,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(400, {"error": "bad body"})
         try:
             body = json.loads(self.rfile.read(length))
+        except ValueError:
+            return self.send_json(400, {"error": "bad json"})
+        if url.path == "/api/email":
+            return self.email(body)
+        try:
             add = [i for i in body.get("add", []) if isinstance(i, str) and ID_RE.match(i)]
             remove = {i for i in body.get("remove", []) if isinstance(i, str)}
         except (ValueError, AttributeError):
@@ -109,6 +116,21 @@ class Handler(SimpleHTTPRequestHandler):
             ids += [i for i in dict.fromkeys(add) if i not in ids]
             save_picks(ids)
         self.send_json(200, {"ids": ids})
+
+    def email(self, body):
+        try:
+            to = mailer.parse_recipients(body.get("to") if isinstance(body, dict) else None)
+        except ValueError as exc:
+            return self.send_json(400, {"error": str(exc)})
+        with LOCK:
+            ids = load_picks()
+        try:
+            mailer.send(to, picked_events(ids))
+        except Exception as exc:
+            self.log_message("email failed: %s", exc)
+            return self.send_json(500, {"error": str(exc)})
+        self.log_message("emailed my picks to %d recipient(s)", len(to))
+        self.send_json(200, {"sent": to})
 
 
 if __name__ == "__main__":
