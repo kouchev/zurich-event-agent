@@ -89,7 +89,8 @@ and an agenda list, with ✓ to remove an event. It loads the events from `/api/
 too works only on the self-hosted site.
 
 **Email.** On the My picks tab, ✉ sends the upcoming picks to 1–5 addresses: a list in the email
-plus `my-picks.ics` as an attachment. Outgoing SMTP is blocked on this host, so `mailer.py` sends
+plus an "Add all to your calendar" link to a snapshot `.ics` in `site/shared/` (random name,
+no key, deleted after 90 days; an attachment showed up as an invitation for its first event only). Outgoing SMTP is blocked on this host, so `mailer.py` sends
 through Resend's HTTPS API. Set-up: verify `3dation.com` at resend.com, create an API key with
 sending access, and save it in `resend.key` (not in git). The sender and a daily limit are set
 under `[email]` in `config.toml`.

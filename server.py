@@ -78,6 +78,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         query = parse_qs(url.query)
+        if url.path.startswith("/shared/") and not re.fullmatch(r"/shared/[\w-]+\.ics", url.path):
+            return self.send_json(404, {"error": "not found"})   # no folder listing of email snapshots
         if url.path not in ("/api/picks", "/my.ics"):
             return super().do_GET()
         if not self.authorized(query):
