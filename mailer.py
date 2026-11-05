@@ -2,9 +2,9 @@
 
 The API key lives in resend.key (not in git). Sender and daily limit come from [email] in config.toml.
 """
-import datetime as dt, html, json, re, secrets, threading, time, urllib.error, urllib.request
+import datetime as dt, html, json, re, threading, urllib.error, urllib.request
 
-from agent import CFG, ROOT, TZ, ics_calendar
+from agent import CFG, ROOT, TZ
 
 EMAIL_RE = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[A-Za-z]{2,}$")
 MAX_RECIPIENTS = 5
@@ -12,26 +12,9 @@ _sent_today = {"day": None, "count": 0}
 _lock = threading.Lock()
 
 
-SHARED = ROOT / "site" / "shared"   # one-off calendar snapshots linked from emails
-KEEP_DAYS = 90
-
-
 def settings() -> dict:
-    return ({"from": "Zurich Events <events@3dation.com>", "max_per_day": 20,
-             "site_url": "https://events.3dation.com"} | CFG.get("email", {}))
+    return {"from": "Zurich Events <events@3dation.com>", "max_per_day": 20} | CFG.get("email", {})
 
-
-def snapshot(ics: str) -> str:
-    """Save the calendar under an unguessable name in site/shared/ and return its public URL.
-    A link instead of an attachment: mail apps show an .ics attachment as an invitation for
-    its first event only. The link holds just these events, never the site key."""
-    SHARED.mkdir(parents=True, exist_ok=True)
-    for old in SHARED.glob("*.ics"):
-        if time.time() - old.stat().st_mtime > KEEP_DAYS * 86400:
-            old.unlink(missing_ok=True)
-    name = f"{secrets.token_urlsafe(12)}.ics"
-    (SHARED / name).write_text(ics)
-    return f"{settings()['site_url'].rstrip('/')}/shared/{name}"
 
 
 def api_key() -> str:
@@ -57,13 +40,11 @@ def _when(e) -> str:
     return f"{start:%a %d.%m.%Y}" + ("" if e["allday"] else f", {start:%H:%M}")
 
 
-def build(events: list, now: dt.datetime, publish=None):
-    """Subject, HTML and text of the email; publish(ics) -> URL makes the "Add to calendar" link."""
+def build(events: list, now: dt.datetime):
+    """Subject, HTML and text of the email: the upcoming picks as a list, each title linking to its event."""
     upcoming = [e for e in events
                 if dt.datetime.fromisoformat(e["end"] or e["start"]) >= now - dt.timedelta(hours=6)]
     subject = f"Zurich Events · My picks ({len(upcoming)} upcoming)"
-    ics = ics_calendar("Zurich Events · My picks", upcoming, now)
-    link = publish(ics) if publish and upcoming else None
     rows = "".join(
         f'<tr><td style="padding:8px 14px 8px 0;vertical-align:top;white-space:nowrap;color:#6b6b70">'
         f'{html.escape(_when(e))}</td><td style="padding:8px 0;vertical-align:top">'
@@ -75,17 +56,13 @@ def build(events: list, now: dt.datetime, publish=None):
     body = (f'<div style="font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#1d1d1f;max-width:640px">'
             f'<h2 style="font-size:19px;margin:0 0 4px">My picks</h2>'
             f'<p style="color:#6b6b70;margin:0 0 14px">{len(upcoming)} upcoming events.</p>'
-            + (f'<p style="margin:0 0 16px"><a href="{html.escape(link)}" style="display:inline-block;'
-               f'background:#b4321e;color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;'
-               f'border-radius:8px">📅 Add all {len(upcoming)} to your calendar</a></p>' if link and upcoming else "")
             + (f'<table style="border-collapse:collapse;font-size:14px">{rows}</table>' if rows
                else "<p>No upcoming events selected.</p>")
             + '<p style="color:#9a9aa2;font-size:12px;margin-top:20px">Sent from '
               '<a href="https://events.3dation.com/" style="color:#9a9aa2">events.3dation.com</a></p></div>')
     text = "My picks\n\n" + "\n\n".join(
         f"{_when(e)}\n{e['title']}" + (f"\n{e['subtitle']}" if e["subtitle"] else "") + f"\n{e['venue']}\n{e['url']}"
-        for e in upcoming) + (f"\n\nAdd all to your calendar: {link}" if link else "") \
-        + "\n\nSent from https://events.3dation.com/\n"
+        for e in upcoming) + "\n\nSent from https://events.3dation.com/\n"
     return subject, body, text
 
 
@@ -100,7 +77,7 @@ def send(to: list, events: list) -> str:
         if _sent_today["count"] >= cfg["max_per_day"]:
             raise RuntimeError(f"daily limit of {cfg['max_per_day']} emails reached")
         _sent_today["count"] += 1
-    subject, body, text = build(events, now, publish=snapshot)
+    subject, body, text = build(events, now)
     req = urllib.request.Request(
         "https://api.resend.com/emails", method="POST",
         data=json.dumps({"from": cfg["from"], "to": to, "subject": subject, "html": body,
